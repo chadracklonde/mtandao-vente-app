@@ -20,6 +20,9 @@ echo "→ Nom affiché sous l'icône : Mtandao"
 manifest="android/app/src/main/AndroidManifest.xml"
 sed -i 's/android:label="[^"]*"/android:label="Mtandao"/' "$manifest"
 
+echo "→ Signature de l'APK (clé personnelle, voir README)…"
+python3 tool/configurer_signature.py
+
 echo "→ Dépendances…"
 flutter pub get
 
@@ -28,5 +31,7 @@ dart run flutter_launcher_icons
 
 echo
 echo "Terminé. Pour tester sur un téléphone branché :   flutter run"
-echo "Pour fabriquer l'APK à installer :                 flutter build apk --release"
-echo "(l'APK se trouve dans build/app/outputs/flutter-apk/app-release.apk)"
+echo
+echo "Pour signer l'application avec VOTRE clé, puis fabriquer l'APK :"
+echo "   ./tool/creer_cle_signature.sh     (une seule fois)"
+echo "   ./build_release.sh"

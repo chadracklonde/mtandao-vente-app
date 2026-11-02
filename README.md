@@ -48,10 +48,27 @@ git clone https://github.com/chadracklonde/mtandao-vente-app
 cd mtandao-vente-app
 ./setup.sh                 # crée le projet Android, les icônes, installe les dépendances
 flutter run                # test sur un téléphone branché
-flutter build apk --release
 ```
 
-L'APK est dans `build/app/outputs/flutter-apk/app-release.apk`.
+## Signer l'application
+
+Android n'installe et ne met à jour une application que si elle est signée, et toujours avec **la même clé**.
+Mtandao se signe avec une clé personnelle créée sur ton ordinateur ; elle n'est jamais envoyée sur GitHub
+(`*.jks` et `android/key.properties` sont ignorés par Git).
+
+```bash
+./tool/creer_cle_signature.sh   # UNE SEULE FOIS : crée la clé (mot de passe à choisir)
+./build_release.sh              # fabrique l'APK signé  (./build_release.sh aab pour le Play Store)
+```
+
+L'APK signé est dans `build/app/outputs/flutter-apk/app-release.apk`.
+
+**Garde la clé précieusement.** Copie `android/app/mtandao-release.jks` et son mot de passe dans un endroit sûr
+(Drive privé, clé USB). Si tu les perds, tu ne pourras plus publier de mise à jour qui remplace l'application
+installée : il faudra la désinstaller, et les données du téléphone seront perdues (pense aux sauvegardes `.mtandao`).
+
+À chaque nouvelle version, augmente le numéro de `version:` dans `pubspec.yaml`
+(`1.0.0+1` devient `1.0.1+2`) : le nombre après le `+` doit toujours grandir.
 
 Les icônes sont générées par `python3 tool/make_icons.py` (Pillow) ; `setup.sh` les applique.
 
@@ -70,6 +87,9 @@ lib/
   widgets/                carte du ticket, clavier PIN
 test/                     tests du lecteur de texte et des formats
 tool/make_icons.py        logo et icônes
+tool/creer_cle_signature.sh   création de la clé de signature
+tool/configurer_signature.py  branche la signature dans Gradle
+build_release.sh          APK / bundle signé
 ```
 
 ## Pistes pour la suite
