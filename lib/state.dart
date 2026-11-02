@@ -13,6 +13,10 @@ class AppState extends ChangeNotifier {
     lotActifId = int.tryParse(await repo.getSetting('lot_actif') ?? '');
   }
 
+  /// Réservé aux tests : utilise un dépôt de données déjà ouvert.
+  @visibleForTesting
+  void utiliserPourTest(Repo depot) => repo = depot;
+
   /// À appeler après toute écriture pour rafraîchir les écrans.
   void changed() => notifyListeners();
 
