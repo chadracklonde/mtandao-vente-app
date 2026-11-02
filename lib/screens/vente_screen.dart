@@ -5,16 +5,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../drive_backup.dart';
 import '../format.dart';
 import '../models.dart';
 import '../state.dart';
 import '../widgets/dialogue_vente.dart';
 import '../widgets/ticket_card.dart';
 import 'import_flow.dart';
+import 'saisie_manuelle.dart';
 
 /// Écran principal : un seul ticket à la fois, un gros bouton « Vendu ».
 class VenteScreen extends StatefulWidget {
-  const VenteScreen({super.key});
+  const VenteScreen({super.key, this.surReglages});
+
+  /// Ouvre l'onglet Réglages (depuis les alertes de sauvegarde).
+  final VoidCallback? surReglages;
 
   @override
   State<VenteScreen> createState() => _VenteScreenState();
@@ -29,6 +34,11 @@ class _VenteScreenState extends State<VenteScreen> {
   Ticket? _dernier;
   List<Vendeur> _vendeurs = [];
   int? _vendeurActifId;
+
+  // Alertes : stock bas (nombre de tickets restants) et sauvegarde.
+  int? _alerteStock;
+  String? _alerteSauvegarde;
+  bool _rappelMasque = false;
   bool _chargement = true;
   bool _occupe = false;
 
@@ -49,6 +59,39 @@ class _VenteScreenState extends State<VenteScreen> {
     _minuteurBandeau?.cancel();
     appState.removeListener(_charger);
     super.dispose();
+  }
+
+  /// Nombre de tickets restants si le stock total est bas, sinon null.
+  /// Le seuil se règle dans Réglages (20 par défaut, 0 = pas d'alerte).
+  Future<int?> _calculerAlerteStock(List<Lot> lots) async {
+    final seuil = int.tryParse(
+            await appState.repo.getSetting(cleSeuilStock) ?? '') ??
+        seuilStockParDefaut;
+    if (seuil <= 0) return null;
+    final restants = lots.fold<int>(0, (a, l) => a + l.restants);
+    return (restants > 0 && restants <= seuil) ? restants : null;
+  }
+
+  /// Message d'alerte sur la sauvegarde, ou null si tout va bien.
+  Future<String?> _calculerAlerteSauvegarde(List<Lot> lots) async {
+    final repo = appState.repo;
+    final driveActif = await repo.getSetting(DriveBackup.cleActif) == '1';
+    if (driveActif) {
+      final erreur = await repo.getSetting(DriveBackup.cleErreur);
+      return erreur == null
+          ? null
+          : 'La sauvegarde Google Drive a échoué : $erreur';
+    }
+    if (!lots.any((l) => l.vendus > 0)) return null;
+    final derniere =
+        int.tryParse(await repo.getSetting('derniere_sauvegarde') ?? '');
+    if (derniere == null) return 'Vos ventes ne sont pas sauvegardées.';
+    final jours = DateTime.now()
+        .difference(DateTime.fromMillisecondsSinceEpoch(derniere))
+        .inDays;
+    return jours >= 3
+        ? 'Dernière sauvegarde il y a $jours jours : vos ventes récentes ne sont pas protégées.'
+        : null;
   }
 
   Vendeur? get _vendeurActif {
@@ -138,6 +181,8 @@ class _VenteScreenState extends State<VenteScreen> {
     Ticket? dernier;
     final vendeurs = await repo.vendeurs(seulementActifs: true);
     final vendeurActif = await repo.vendeurActifId();
+    final alerteStock = await _calculerAlerteStock(lots);
+    final alerteSauvegarde = await _calculerAlerteSauvegarde(lots);
     if (lot != null) {
       ticket = await repo.prochainTicket(lot.id);
       if (ticket != null) image = await repo.imageTicket(ticket.id);
@@ -154,6 +199,8 @@ class _VenteScreenState extends State<VenteScreen> {
       _dernier = dernier;
       _vendeurs = vendeurs;
       _vendeurActifId = vendeurActif;
+      _alerteStock = alerteStock;
+      _alerteSauvegarde = alerteSauvegarde;
       _chargement = false;
     });
   }
@@ -300,11 +347,20 @@ class _VenteScreenState extends State<VenteScreen> {
               icon: const Icon(Icons.picture_as_pdf_rounded),
               label: const Text('Importer un PDF'),
             ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _saisirCodes,
+              icon: const Icon(Icons.keyboard_alt_outlined),
+              label: const Text('Saisir des codes à la main'),
+            ),
           ],
         ),
       ),
     );
   }
+
+  Future<void> _saisirCodes() => Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const SaisieManuelleScreen()));
 
   Widget _contenu(BuildContext context) {
     final lot = _lot!;
@@ -395,6 +451,26 @@ class _VenteScreenState extends State<VenteScreen> {
           ),
         ),
 
+        // ------------------------------------------------------------- alertes
+        if (_alerteStock != null)
+          _carteAlerte(
+            context,
+            icone: Icons.inventory_2_outlined,
+            texte:
+                'Plus que $_alerteStock ticket${_alerteStock! > 1 ? 's' : ''} en stock. Pensez à importer un nouveau PDF.',
+            action: 'Importer',
+            surAction: () => ImportFlow.demarrer(context),
+          ),
+        if (_alerteSauvegarde != null && !_rappelMasque)
+          _carteAlerte(
+            context,
+            icone: Icons.cloud_off_outlined,
+            texte: _alerteSauvegarde!,
+            action: widget.surReglages == null ? null : 'Réglages',
+            surAction: widget.surReglages,
+            surFermer: () => setState(() => _rappelMasque = true),
+          ),
+
         // ------------------------------------------- confirmation de la vente
         AnimatedSize(
           duration: const Duration(milliseconds: 150),
@@ -475,6 +551,45 @@ class _VenteScreenState extends State<VenteScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  Widget _carteAlerte(
+    BuildContext context, {
+    required IconData icone,
+    required String texte,
+    String? action,
+    VoidCallback? surAction,
+    VoidCallback? surFermer,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+        color: cs.tertiaryContainer,
+        child: Row(
+          children: [
+            Icon(icone, color: cs.onTertiaryContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(texte,
+                  style: TextStyle(color: cs.onTertiaryContainer)),
+            ),
+            if (action != null && surAction != null)
+              TextButton(onPressed: surAction, child: Text(action)),
+            if (surFermer != null)
+              IconButton(
+                tooltip: 'Masquer',
+                onPressed: surFermer,
+                icon: Icon(Icons.close_rounded, color: cs.onTertiaryContainer),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -569,6 +684,12 @@ class _VenteScreenState extends State<VenteScreen> {
               onPressed: () => ImportFlow.demarrer(context),
               icon: const Icon(Icons.picture_as_pdf_rounded),
               label: const Text('Importer un nouveau PDF'),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              onPressed: _saisirCodes,
+              icon: const Icon(Icons.keyboard_alt_outlined),
+              label: const Text('Saisir des codes à la main'),
             ),
             const SizedBox(height: 8),
             TextButton.icon(
