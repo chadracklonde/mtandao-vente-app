@@ -18,6 +18,7 @@ android/key.properties
 android/app/release/
 *.jks
 *.keystore
+mtandao-cle.base64.txt
 
 # Divers
 .DS_Store

@@ -50,25 +50,54 @@ cd mtandao-vente-app
 flutter run                # test sur un téléphone branché
 ```
 
-## Signer l'application
+## Signer l'application avec GitHub
 
-Android n'installe et ne met à jour une application que si elle est signée, et toujours avec **la même clé**.
-Mtandao se signe avec une clé personnelle créée sur ton ordinateur ; elle n'est jamais envoyée sur GitHub
-(`*.jks` et `android/key.properties` sont ignorés par Git).
+GitHub Actions fabrique l'APK et le signe avec ta clé personnelle, gardée dans les « secrets » du dépôt
+(workflow `.github/workflows/build-apk.yml`). Tu n'as pas besoin d'installer Flutter sur ton ordinateur.
+À chaque envoi sur `main`, GitHub vérifie aussi que le code compile (onglet **Actions**).
+
+**1. Créer la clé (une seule fois)** : il faut `keytool`, fourni par le JDK ou par Android Studio.
 
 ```bash
-./tool/creer_cle_signature.sh   # UNE SEULE FOIS : crée la clé (mot de passe à choisir)
-./build_release.sh              # fabrique l'APK signé  (./build_release.sh aab pour le Play Store)
+./tool/creer_cle_signature.sh
 ```
 
-L'APK signé est dans `build/app/outputs/flutter-apk/app-release.apk`.
+Sans bash (Windows) : `keytool -genkeypair -keystore mtandao-release.jks -storetype PKCS12 -alias mtandao -keyalg RSA -keysize 2048 -validity 10000`.
+Tu peux aussi réutiliser la clé d'une autre de tes applications.
 
-**Garde la clé précieusement.** Copie `android/app/mtandao-release.jks` et son mot de passe dans un endroit sûr
+**2. Donner la clé à GitHub (une seule fois)**
+
+```bash
+./tool/exporter_cle_pour_github.sh
+```
+
+Avec l'outil `gh` connecté, le script envoie les secrets lui-même. Sinon il te dit quoi coller dans
+*Settings > Secrets and variables > Actions* :
+
+| Secret | Contenu |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | le texte de la clé (fichier `mtandao-cle.base64.txt`) |
+| `ANDROID_KEYSTORE_PASSWORD` | le mot de passe de la clé |
+| `ANDROID_KEY_ALIAS` | l'alias (facultatif si c'est `mtandao`) |
+
+Sans bash : le texte de la clé s'obtient en PowerShell avec
+`[Convert]::ToBase64String([IO.File]::ReadAllBytes("mtandao-release.jks"))`.
+
+**3. Fabriquer l'APK signé**
+
+- À la main : onglet **Actions** > « Mtandao - APK signé » > **Run workflow**. L'APK est dans la section *Artifacts* de l'exécution (30 jours).
+- Pour une version publiée : `git tag v1.0.0 && git push origin v1.0.0`. L'APK est joint à la page **Releases**
+  (attention : si le dépôt est public, ce lien est public).
+
+Le numéro de build augmente tout seul à chaque exécution, et le workflow refuse un APK signé avec la clé de test.
+
+**Garde la clé précieusement.** Copie le fichier `.jks` et son mot de passe dans un endroit sûr
 (Drive privé, clé USB). Si tu les perds, tu ne pourras plus publier de mise à jour qui remplace l'application
 installée : il faudra la désinstaller, et les données du téléphone seront perdues (pense aux sauvegardes `.mtandao`).
+La clé ne doit jamais être dans le dépôt : `*.jks`, `key.properties` et `mtandao-cle.base64.txt` sont ignorés par Git.
 
-À chaque nouvelle version, augmente le numéro de `version:` dans `pubspec.yaml`
-(`1.0.0+1` devient `1.0.1+2`) : le nombre après le `+` doit toujours grandir.
+*Alternative sans GitHub* : sur ton ordinateur avec Flutter, `./setup.sh` puis `./build_release.sh`
+(il utilise la clé créée à l'étape 1).
 
 Les icônes sont générées par `python3 tool/make_icons.py` (Pillow) ; `setup.sh` les applique.
 
@@ -88,6 +117,8 @@ lib/
 test/                     tests du lecteur de texte et des formats
 tool/make_icons.py        logo et icônes
 tool/creer_cle_signature.sh   création de la clé de signature
+tool/exporter_cle_pour_github.sh  envoi de la clé aux secrets GitHub
+.github/workflows/build-apk.yml   vérification + APK signé
 tool/configurer_signature.py  branche la signature dans Gradle
 build_release.sh          APK / bundle signé
 ```
