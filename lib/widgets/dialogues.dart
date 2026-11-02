@@ -9,6 +9,7 @@ Future<String?> demanderTexte(
   required String titre,
   required String libelle,
   String initial = '',
+  String? aide,
   TextInputType? clavier,
   TextCapitalization majuscules = TextCapitalization.none,
 }) {
@@ -18,6 +19,7 @@ Future<String?> demanderTexte(
       titre: titre,
       libelle: libelle,
       initial: initial,
+      aide: aide,
       clavier: clavier,
       majuscules: majuscules,
     ),
@@ -29,12 +31,14 @@ class _DialogueTexte extends StatefulWidget {
     required this.titre,
     required this.libelle,
     required this.initial,
+    required this.aide,
     required this.clavier,
     required this.majuscules,
   });
   final String titre;
   final String libelle;
   final String initial;
+  final String? aide;
   final TextInputType? clavier;
   final TextCapitalization majuscules;
 
@@ -56,14 +60,24 @@ class _DialogueTexteState extends State<_DialogueTexte> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text(widget.titre),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        keyboardType: widget.clavier,
-        textCapitalization: widget.majuscules,
-        decoration: InputDecoration(
-            labelText: widget.libelle, border: const OutlineInputBorder()),
-        onSubmitted: (v) => Navigator.pop(context, v.trim()),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.aide != null) ...[
+            Text(widget.aide!),
+            const SizedBox(height: 10),
+          ],
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            keyboardType: widget.clavier,
+            textCapitalization: widget.majuscules,
+            decoration: InputDecoration(
+                labelText: widget.libelle, border: const OutlineInputBorder()),
+            onSubmitted: (v) => Navigator.pop(context, v.trim()),
+          ),
+        ],
       ),
       actions: [
         TextButton(
