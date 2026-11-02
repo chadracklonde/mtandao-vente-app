@@ -19,7 +19,7 @@ dependencies:
   image: ^4.5.4
   zxing2: ^0.2.4
   crypto: ^3.0.6
-  file_picker: ^8.1.6
+  file_picker: ^10.3.8
   share_plus: ^10.1.4
 
 dev_dependencies:
