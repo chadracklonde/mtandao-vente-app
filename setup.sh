@@ -26,6 +26,11 @@ if ! grep -q "USE_BIOMETRIC" "$manifest"; then
 fi
 find android/app/src/main -name 'MainActivity.*' -exec sed -i 's/\bFlutterActivity\b/FlutterFragmentActivity/g' {} +
 
+echo "→ Sauvegarde Google Drive (autorisation Internet)…"
+if ! grep -q "android.permission.INTERNET" "$manifest"; then
+  sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$manifest"
+fi
+
 echo "→ Signature de l'APK (clé personnelle, voir README)…"
 python3 tool/configurer_signature.py
 

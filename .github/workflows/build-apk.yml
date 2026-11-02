@@ -88,9 +88,18 @@ jobs:
           PY
 
       - name: Fabriquer l'APK
+        env:
+          # Identifiant (public) du client OAuth « Web » de Google Cloud, pour la
+          # sauvegarde Google Drive. Settings > Secrets and variables > Actions > Variables.
+          GOOGLE_SERVER_CLIENT_ID: ${{ vars.GOOGLE_SERVER_CLIENT_ID }}
         run: |
           # Le numéro de build augmente tout seul à chaque exécution (Android l'exige).
           ARGS=(--release "--build-number=${GITHUB_RUN_NUMBER}")
+          if [ -n "${GOOGLE_SERVER_CLIENT_ID}" ]; then
+            ARGS+=("--dart-define=GOOGLE_SERVER_CLIENT_ID=${GOOGLE_SERVER_CLIENT_ID}")
+          else
+            echo "::warning title=Google Drive non configuré::La variable GOOGLE_SERVER_CLIENT_ID est absente : la sauvegarde Google Drive sera indisponible dans cet APK. Voir le README."
+          fi
           NOM=""
           if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             NOM="${GITHUB_REF_NAME#v}"

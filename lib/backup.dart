@@ -22,9 +22,11 @@ class Sauvegarde {
   static const int version = 1;
   static const String extension = 'mtandao';
 
-  // Réglages exclus de la sauvegarde.
-  static bool _exclu(String cle) =>
+  // Réglages exclus de la sauvegarde (PIN, lot actif, état de la sauvegarde
+  // Google Drive : propres à ce téléphone).
+  static bool estExclu(String cle) =>
       cle.startsWith('pin_') ||
+      cle.startsWith('drive_') ||
       cle == 'lot_actif' ||
       cle == 'derniere_sauvegarde';
 
@@ -42,7 +44,7 @@ class Sauvegarde {
       'images': await db.query('ticket_images'),
       'settings': {
         for (final r in reglages)
-          if (!_exclu(r['cle'] as String)) r['cle'] as String: r['valeur'],
+          if (!estExclu(r['cle'] as String)) r['cle'] as String: r['valeur'],
       },
     };
     final octets = await compute(_encoder, donnees);
@@ -90,7 +92,10 @@ class Sauvegarde {
       await txn.delete('tickets');
       await txn.delete('lots');
       await txn.delete('forfaits');
-      await txn.delete('settings', where: "cle NOT LIKE 'pin\\_%' ESCAPE '\\'");
+      // On garde le PIN et la connexion à Google Drive (propres à ce téléphone).
+      await txn.delete('settings',
+          where: "cle NOT LIKE 'pin\\_%' ESCAPE '\\' "
+              "AND cle NOT LIKE 'drive\\_%' ESCAPE '\\'");
 
       final b = txn.batch();
       for (final r in forfaits) {
@@ -106,7 +111,7 @@ class Sauvegarde {
         b.insert('ticket_images', r);
       }
       reglages.forEach((cle, valeur) {
-        if (_exclu(cle)) return;
+        if (estExclu(cle)) return;
         b.insert('settings', {'cle': cle, 'valeur': valeur},
             conflictAlgorithm: ConflictAlgorithm.replace);
       });
