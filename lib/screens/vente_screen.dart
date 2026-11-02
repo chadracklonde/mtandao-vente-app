@@ -8,6 +8,7 @@ import '../drive_backup.dart';
 import '../format.dart';
 import '../models.dart';
 import '../state.dart';
+import '../widgets/barre_progression.dart';
 import '../widgets/dialogue_vente.dart';
 import '../widgets/ticket_card.dart';
 import 'import_flow.dart';
@@ -233,10 +234,17 @@ class _VenteScreenState extends State<VenteScreen> {
       appState.changed();
       if (!mounted) return;
       if (ok) {
+        // Le client a pu être créé pendant la vente : on relit la liste.
+        final nomClient = choix.paiement == Paiement.credit
+            ? (await repo.clients())
+                .where((c) => c.id == choix.clientId)
+                .map((c) => c.nom)
+                .firstOrNull
+            : null;
+        if (!mounted) return;
         final detail = switch (choix.paiement) {
           Paiement.especes => '',
-          Paiement.credit =>
-            '  ·  à crédit (${clients.where((c) => c.id == choix.clientId).map((c) => c.nom).firstOrNull ?? 'client'})',
+          Paiement.credit => '  ·  à crédit (${nomClient ?? 'client'})',
           final p => '  ·  ${Paiement.libelle(p).toLowerCase()}',
         };
         _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}$detail',
@@ -424,15 +432,10 @@ class _VenteScreenState extends State<VenteScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  minHeight: 8,
-                  value: stats.total == 0 ? 0 : stats.vendus / stats.total,
-                  semanticsLabel: 'Progression du lot',
-                  semanticsValue:
-                      '${stats.vendus} tickets vendus sur ${stats.total}',
-                ),
+              BarreProgression(
+                valeur: stats.total == 0 ? 0 : stats.vendus / stats.total,
+                phrase:
+                    'Progression du lot : ${stats.vendus} tickets vendus sur ${stats.total}',
               ),
               if (_dernier != null)
                 Padding(

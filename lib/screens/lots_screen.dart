@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../format.dart';
 import '../models.dart';
 import '../state.dart';
+import '../widgets/barre_progression.dart';
 import '../widgets/dialogues.dart';
 import 'import_flow.dart';
 import 'saisie_manuelle.dart';
@@ -144,14 +145,10 @@ class _LotsScreenState extends State<LotsScreen> {
                     ?.copyWith(color: cs.onSurfaceVariant),
               ),
               const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                  minHeight: 8,
-                  value: lot.total == 0 ? 0 : lot.vendus / lot.total,
-                  semanticsLabel: 'Progression du lot',
-                  semanticsValue: '${lot.vendus} tickets vendus sur ${lot.total}',
-                ),
+              BarreProgression(
+                valeur: lot.total == 0 ? 0 : lot.vendus / lot.total,
+                phrase:
+                    'Progression du lot : ${lot.vendus} tickets vendus sur ${lot.total}',
               ),
               const SizedBox(height: 8),
               Text.rich(TextSpan(children: [

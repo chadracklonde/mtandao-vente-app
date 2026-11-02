@@ -13,13 +13,18 @@ des rapports par jour, semaine, mois ou période libre.
 | Fonction | Détail |
 |---|---|
 | **Import de PDF** | Lit directement le PDF sur le téléphone. Deux modèles reconnus automatiquement (voir plus bas). |
-| **Vente** | Un ticket en grand (image d'origine avec son QR, ou carte dessinée) + le code à copier. **VENDU** passe au suivant. |
+| **Vente** | Un ticket en grand (image d'origine avec son QR, ou carte dessinée) + le code à copier. **VENDU** passe au suivant. À la confirmation on choisit le paiement : **espèces** (par défaut), **mobile money**, **à crédit** (avec un client) ou **offert**. |
+| **Saisie manuelle** | Coller ou taper un code par ligne (ou « code mot_de_passe ») : nouveau lot, ou ajout à un lot existant. Utile si le PDF est introuvable ou mal lu. |
+| **Alertes** | Stock bas (seuil réglable, 20 par défaut), rappel de sauvegarde, et alerte si la sauvegarde Google Drive échoue. |
 | **Compteur** | En haut : tickets déjà vendus, restants, montant encaissé, dernier ticket vendu. |
 | **Annuler** | Remet en vente la dernière vente (bouton, ou « ANNULER » juste après une vente). |
-| **Lots** | Un lot par PDF importé, avec historique, recherche d'un code, correction d'un ticket (marquer vendu / remettre en vente). |
-| **Rapports** | Jour, semaine, mois, période au choix. Total, détail par forfait, par jour, partage en texte (WhatsApp…). |
+| **Lots** | Un lot par PDF importé, avec historique, recherche d'un code, correction d'un ticket (marquer vendu / remettre en vente) et **tickets défectueux** (non proposés, non comptés dans les restants). |
+| **Rapports** | Jour, semaine, mois, période au choix. Argent encaissé (hors offerts et crédits non payés), à recevoir, comparaison avec la période précédente, graphiques (par jour, heures de pointe), détail par forfait, mode de paiement, vendeur et jour. Partage en texte, **export CSV** (Excel) et **PDF**. |
+| **Clients et dettes** | Réglages > Clients et dettes : ce que chaque client doit, payer un ticket ou tout, rappel par partage. |
+| **Vendeurs** | Une pastille « qui vend » sur l'écran de vente ; chaque vente garde le nom du vendeur, et les rapports montrent un total par vendeur. (Un vendeur est un nom, pas un compte protégé par un code.) |
+| **Apparence et aide** | Clair, sombre ou automatique ; guide « Comment ça marche » au premier lancement et dans Réglages. |
 | **Forfaits** | 1 jour = 1 000 CDF au départ. On ajoute 1 h, 1 semaine, 1 mois dans Réglages > Forfaits, chacun avec son prix. |
-| **PIN** | Code à 4 chiffres au lancement et après 1 minute en arrière-plan. Stocké haché, jamais en clair. |
+| **PIN** | Code à 4 chiffres au lancement et après 1 minute en arrière-plan. Stocké haché, jamais en clair. Après 5 mauvais codes, l'application se bloque (30 s, puis 1 min, 5 min, 15 min, 1 h) **même si on la ferme et la rouvre**. |
 | **Sauvegarde** | Un fichier `.mtandao` à envoyer sur WhatsApp, Drive ou e-mail. Restauration sur un autre téléphone. Le PIN n'est pas inclus. |
 | **Sauvegarde Google Drive** | Facultative et automatique : toutes les heures (si les données ont changé), dans le dossier « Mtandao Sauvegardes » de votre Drive. Les 10 plus récentes sont gardées. Voir la section ci-dessous. |
 | **Partage d'un ticket** | Envoie code + lien de connexion au client. |
