@@ -87,6 +87,27 @@ class _VenteScreenState extends State<VenteScreen> {
     if (t == null || _occupe) return;
     _occupe = true;
     try {
+      // Confirmation pour éviter un appui par inadvertance.
+      final confirme = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Confirmer la vente ?'),
+          content: Text(
+              'Ticket ${t.code}\nMontant : ${cdf(t.prix)}\n\nCe ticket sera marqué comme vendu.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Non'),
+            ),
+            FilledButton(
+              autofocus: true,
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Oui, vendu'),
+            ),
+          ],
+        ),
+      );
+      if (confirme != true) return;
       final ok = await appState.repo.vendre(t.id);
       HapticFeedback.mediumImpact();
       appState.changed();
