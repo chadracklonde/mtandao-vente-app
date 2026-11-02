@@ -100,6 +100,15 @@ class Repo {
     });
   }
 
+  /// Crédits pas encore payés sur les tickets d'un lot (avant de le supprimer).
+  Future<int> aRecevoirDuLot(int lotId) async {
+    final r = await db.rawQuery('''
+      SELECT COALESCE(SUM(prix), 0) AS total FROM tickets
+      WHERE lot_id = ? AND vendu = 1 AND paiement = 'credit' AND paye_le IS NULL''',
+        [lotId]);
+    return (r.first['total'] as int?) ?? 0;
+  }
+
   /// Codes déjà présents en base (pour ignorer les doublons à l'import).
   Future<Set<String>> codesExistants() async {
     final r = await db.query('tickets', columns: ['code']);

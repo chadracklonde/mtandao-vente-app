@@ -16,7 +16,12 @@ Future<void> main() async {
   await initializeDateFormatting('fr');
   await pdfrxFlutterInitialize();
   await appState.init();
-  await SauvegardeAuto.initialiser();
+  try {
+    await SauvegardeAuto.initialiser();
+  } catch (_) {
+    // La sauvegarde automatique est facultative : l'application doit
+    // démarrer et vendre même si elle est indisponible.
+  }
   runApp(const MtandaoApp());
 }
 

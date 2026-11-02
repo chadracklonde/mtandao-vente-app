@@ -31,12 +31,19 @@ class SauvegardeAuto {
   static Future<void> initialiser() =>
       Workmanager().initialize(sauvegardeEnArrierePlan);
 
-  static Future<void> planifier() => Workmanager().registerPeriodicTask(
+  /// Programme (ou reprogramme) la sauvegarde toutes les heures. Avec
+  /// [wifiSeulement], Android n'exécute la tâche que sur un réseau non facturé
+  /// à l'usage (Wi-Fi).
+  static Future<void> planifier({bool wifiSeulement = false}) =>
+      Workmanager().registerPeriodicTask(
         _nomUnique,
         _nomTache,
         frequency: intervalle,
-        constraints: Constraints(networkType: NetworkType.connected),
-        existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
+        constraints: Constraints(
+            networkType:
+                wifiSeulement ? NetworkType.unmetered : NetworkType.connected),
+        // « update » : une modification du réglage Wi-Fi est prise en compte.
+        existingWorkPolicy: ExistingPeriodicWorkPolicy.update,
       );
 
   static Future<void> arreter() => Workmanager().cancelByUniqueName(_nomUnique);
@@ -46,6 +53,16 @@ class SauvegardeAuto {
   /// retarder la tâche d'arrière-plan, surtout si le téléphone économise la batterie).
   static Future<void> rattraper(Repo repo) async {
     if (await repo.getSetting(DriveBackup.cleActif) != '1') return;
+    final wifi = await repo.getSetting(DriveBackup.cleWifi) == '1';
+    try {
+      // Reprogramme au cas où la tâche aurait été perdue (données effacées,
+      // économiseur de batterie agressif).
+      await planifier(wifiSeulement: wifi);
+    } catch (_) {}
+    // Sans pouvoir savoir si le réseau est du Wi-Fi, le rattrapage à l'ouverture
+    // est suspendu en mode « Wi-Fi seulement » : seule la tâche d'arrière-plan
+    // (réseau non facturé) et le bouton « Sauvegarder maintenant » envoient.
+    if (wifi) return;
     final essai =
         int.tryParse(await repo.getSetting(DriveBackup.cleEssai) ?? '');
     if (essai != null) {

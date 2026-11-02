@@ -244,13 +244,16 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
   Future<void> _supprimer() async {
     final lot = _lot;
     if (lot == null) return;
+    final aRecevoir = await appState.repo.aRecevoirDuLot(lot.id);
+    if (!mounted) return;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.warning_amber_rounded),
         title: const Text('Supprimer ce lot ?'),
         content: Text(
-            'Les ${lot.total} tickets de « ${lot.nom} » seront effacés, y compris l\'historique de ${lot.vendus} ventes (${cdf(lot.montant)}). Les rapports changeront. Cette action est définitive.'),
+            'Les ${lot.total} tickets de « ${lot.nom} » seront effacés, y compris l\'historique de ${lot.vendus} ventes (${cdf(lot.montant)}). Les rapports changeront. Cette action est définitive.'
+            '${aRecevoir > 0 ? '\n\nAttention : ${cdf(aRecevoir)} de ventes à crédit ne sont pas encore payés ; ces dettes disparaîtront aussi.' : ''}'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
