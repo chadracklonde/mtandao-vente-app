@@ -277,6 +277,49 @@ void main() {
     });
   });
 
+  group('Ajout de tickets à un lot', () {
+    test('place les nouveaux tickets à la suite, au prix du forfait', () async {
+      final (repo, lotId) = await _repoAvecLot();
+      final r = await repo.ajouterTickets(lotId, [
+        ParsedTicket(code: 'N1'),
+        ParsedTicket(code: 'N2', motDePasse: 'mdp'),
+      ]);
+      expect(r.inseres, 2);
+      expect(r.doublons, 0);
+
+      final ts = await _tickets(repo, lotId);
+      expect(ts.map((t) => t.code), ['C1', 'C2', 'C3', 'C4', 'N1', 'N2']);
+      expect(ts.map((t) => t.position), [0, 1, 2, 3, 4, 5]);
+      expect(ts.last.motDePasse, 'mdp');
+      expect(ts.last.prix, ts.first.prix);
+      expect((await repo.lot(lotId))!.total, 6);
+    });
+
+    test('ignore les codes déjà présents, même dans un autre lot', () async {
+      final (repo, lotId) = await _repoAvecLot();
+      final autre = await repo.importerLot(
+        nom: 'Autre',
+        forfait: (await repo.forfaits()).first,
+        source: 'manuel',
+        tickets: [ParsedTicket(code: 'Z9')],
+      );
+      final r = await repo.ajouterTickets(lotId, [
+        ParsedTicket(code: 'C1'),
+        ParsedTicket(code: 'Z9'),
+        ParsedTicket(code: 'NEUF'),
+      ]);
+      expect(r.inseres, 1);
+      expect(r.doublons, 2);
+      expect((await repo.lot(autre.lotId!))!.total, 1);
+    });
+
+    test('lot inexistant : erreur claire', () async {
+      final (repo, _) = await _repoAvecLot();
+      expect(() => repo.ajouterTickets(9999, [ParsedTicket(code: 'X')]),
+          throwsStateError);
+    });
+  });
+
   group('Vendeurs', () {
     test('vendeur actif : seulement un vendeur actif existant', () async {
       final repo = Repo(await _neuve());

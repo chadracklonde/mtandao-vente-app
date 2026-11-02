@@ -116,6 +116,9 @@ class _DialogueVenteState extends State<DialogueVente> {
             if (_paiement == Paiement.credit) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
+                // Recréé quand le client change (nouveau client choisi
+                // d'office) : « initialValue » n'est lu qu'à la création.
+                key: ValueKey('client-${_clients.length}-$_clientId'),
                 initialValue: _clientId,
                 isExpanded: true,
                 decoration: const InputDecoration(

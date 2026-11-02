@@ -1,5 +1,10 @@
 import 'dart:typed_data';
 
+/// Réglage : alerte de stock bas (nombre de tickets restants, tous lots
+/// confondus). 0 = pas d'alerte.
+const String cleSeuilStock = 'seuil_stock';
+const int seuilStockParDefaut = 20;
+
 /// Modes de paiement d'une vente.
 ///  - espèces et mobile money : encaissé tout de suite ;
 ///  - crédit : vendu mais pas encore payé (une dette du client) ;

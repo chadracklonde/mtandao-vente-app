@@ -164,6 +164,54 @@ class Repo {
     });
   }
 
+  /// Ajoute des tickets à un lot existant (saisie manuelle). Les codes déjà
+  /// présents dans l'application sont ignorés. Ils prennent le prix du forfait
+  /// du lot et se placent après les tickets existants.
+  Future<ImportResult> ajouterTickets(
+      int lotId, List<ParsedTicket> tickets) {
+    return db.transaction((txn) async {
+      final lots = await txn.query('lots', where: 'id = ?', whereArgs: [lotId]);
+      if (lots.isEmpty) {
+        throw StateError('Lot introuvable : $lotId');
+      }
+      final forfaitId = lots.first['forfait_id'] as int;
+      final forfaits =
+          await txn.query('forfaits', where: 'id = ?', whereArgs: [forfaitId]);
+      final prix = forfaits.first['prix'] as int;
+
+      final existants = <String>{
+        for (final r in await txn.query('tickets', columns: ['code']))
+          r['code'] as String,
+      };
+      final pos = await txn.rawQuery(
+          'SELECT COALESCE(MAX(position), -1) AS m FROM tickets WHERE lot_id = ?',
+          [lotId]);
+      var position = (pos.first['m'] as int) + 1;
+
+      var inseres = 0;
+      var doublons = 0;
+      for (final t in tickets) {
+        if (!existants.add(t.code)) {
+          doublons++;
+          continue;
+        }
+        await txn.insert('tickets', {
+          'lot_id': lotId,
+          'position': position++,
+          'numero': t.numero,
+          'code': t.code,
+          'mot_de_passe': t.motDePasse,
+          'qr_texte': t.qrTexte,
+          'prix': prix,
+          'forfait_id': forfaitId,
+          'vendu': 0,
+        });
+        inseres++;
+      }
+      return ImportResult(lotId: lotId, inseres: inseres, doublons: doublons);
+    });
+  }
+
   // ----------------------------------------------------------------- tickets
 
   Future<Ticket?> prochainTicket(int lotId) async {

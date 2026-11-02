@@ -4,6 +4,7 @@ import '../format.dart';
 import '../models.dart';
 import '../state.dart';
 import 'import_flow.dart';
+import 'saisie_manuelle.dart';
 
 /// Liste des lots de tickets importés (un lot = un PDF).
 class LotsScreen extends StatefulWidget {
@@ -45,7 +46,17 @@ class _LotsScreenState extends State<LotsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Lots de tickets')),
+      appBar: AppBar(
+        title: const Text('Lots de tickets'),
+        actions: [
+          IconButton(
+            tooltip: 'Saisir des codes à la main',
+            icon: const Icon(Icons.keyboard_alt_outlined),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const SaisieManuelleScreen())),
+          ),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => ImportFlow.demarrer(context),
         icon: const Icon(Icons.picture_as_pdf_rounded),
@@ -348,6 +359,13 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
       appBar: AppBar(
         title: Text(lot?.nom ?? 'Lot', overflow: TextOverflow.ellipsis),
         actions: [
+          if (lot != null)
+            IconButton(
+              tooltip: 'Ajouter des codes à ce lot',
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => SaisieManuelleScreen(lot: lot))),
+              icon: const Icon(Icons.playlist_add_rounded),
+            ),
           IconButton(
               tooltip: 'Renommer',
               onPressed: _renommer,

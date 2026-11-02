@@ -142,6 +142,8 @@ void main() {
 
     expect(nomCree, 'Paul');
     expect(telCree, '0812345678');
+    // Le nouveau client est affiché comme choisi dans la liste.
+    expect(find.text('Paul'), findsOneWidget);
     await tester.tap(find.text('Oui, vendu'));
     await tester.pumpAndSettle();
     final choix = (await resultat())!;

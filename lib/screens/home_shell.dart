@@ -46,7 +46,7 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
       body: IndexedStack(
         index: _index,
         children: [
-          const VenteScreen(),
+          VenteScreen(surReglages: () => setState(() => _index = 3)),
           LotsScreen(surVendre: () => setState(() => _index = 0)),
           const RapportsScreen(),
           const SettingsScreen(),

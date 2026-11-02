@@ -12,6 +12,7 @@ import '../models.dart';
 import '../sauvegarde_auto.dart';
 import '../security.dart';
 import '../state.dart';
+import '../widgets/dialogues.dart';
 import '../widgets/pin_pad.dart';
 import 'dettes_screen.dart';
 import 'vendeurs_screen.dart';
@@ -29,6 +30,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _bioDispo = false;
   bool _bioActive = false;
   bool _chargee = false;
+
+  int _seuilStock = seuilStockParDefaut;
 
   // Sauvegarde automatique Google Drive.
   bool _driveActif = false;
@@ -55,6 +58,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await appState.repo.getSetting('derniere_sauvegarde') ?? '');
     final bioDispo = await Biometrie.disponible();
     final bioActive = await Biometrie.active();
+    final seuil = int.tryParse(
+            await appState.repo.getSetting(cleSeuilStock) ?? '') ??
+        seuilStockParDefaut;
     final driveActif =
         await appState.repo.getSetting(DriveBackup.cleActif) == '1';
     final driveEmail = await appState.repo.getSetting(DriveBackup.cleEmail);
@@ -63,6 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final driveErreur = await appState.repo.getSetting(DriveBackup.cleErreur);
     if (!mounted) return;
     setState(() {
+      _seuilStock = seuil;
       _driveActif = driveActif;
       _driveEmail = driveEmail;
       _driveSucces = driveSucces == null
@@ -133,6 +140,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       _info('Sauvegarde impossible : $e');
     }
+  }
+
+  Future<void> _modifierSeuilStock() async {
+    final saisi = await demanderTexte(
+      context,
+      titre: 'Alerte de stock bas',
+      libelle: 'Prévenir quand il reste ce nombre de tickets (0 = jamais)',
+      initial: '$_seuilStock',
+      clavier: TextInputType.number,
+    );
+    final v = int.tryParse(saisi ?? '');
+    if (v == null || v < 0) return;
+    await appState.repo.setSetting(cleSeuilStock, '$v');
+    appState.changed();
+    await _charger();
   }
 
   Future<void> _connecterDrive() async {
@@ -269,6 +291,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const ForfaitsScreen())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.inventory_2_outlined),
+            title: const Text('Alerte de stock bas'),
+            subtitle: Text(_seuilStock <= 0
+                ? 'Désactivée'
+                : 'Prévenir quand il reste $_seuilStock tickets ou moins'),
+            onTap: _modifierSeuilStock,
           ),
           ListTile(
             leading: const Icon(Icons.account_balance_wallet_outlined),
