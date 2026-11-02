@@ -14,6 +14,7 @@ import '../security.dart';
 import '../state.dart';
 import '../widgets/dialogues.dart';
 import '../widgets/pin_pad.dart';
+import 'aide_screen.dart';
 import 'dettes_screen.dart';
 import 'vendeurs_screen.dart';
 
@@ -379,6 +380,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Restaurer une sauvegarde'),
             subtitle: const Text('Utile si vous changez ou perdez de téléphone.'),
             onTap: _restaurer,
+          ),
+          const _Entete('Affichage et aide'),
+          ListTile(
+            leading: const Icon(Icons.brightness_6_outlined),
+            title: const Text('Apparence'),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: ValueListenableBuilder<ThemeMode>(
+                valueListenable: themeMode,
+                builder: (context, mode, _) => SegmentedButton<ThemeMode>(
+                  showSelectedIcon: false,
+                  segments: const [
+                    ButtonSegment(
+                        value: ThemeMode.system, label: Text('Auto')),
+                    ButtonSegment(value: ThemeMode.light, label: Text('Clair')),
+                    ButtonSegment(value: ThemeMode.dark, label: Text('Sombre')),
+                  ],
+                  selected: {mode},
+                  onSelectionChanged: (s) => appState.definirTheme(s.first),
+                ),
+              ),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.help_outline_rounded),
+            title: const Text('Comment ça marche'),
+            subtitle: const Text('Le guide : importer, vendre, rapports, sauvegarde'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => const AideScreen())),
           ),
           const _Entete('À propos'),
           const ListTile(

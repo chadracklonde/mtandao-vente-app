@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../sauvegarde_auto.dart';
 import '../state.dart';
+import 'aide_screen.dart';
 import 'lots_screen.dart';
 import 'rapports_screen.dart';
 import 'settings_screen.dart';
@@ -25,6 +26,21 @@ class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     unawaited(SauvegardeAuto.rattraper(appState.repo));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _guideSiPremiereFois());
+  }
+
+  /// Au tout premier lancement (rien d'importé, guide jamais vu), affiche le guide.
+  Future<void> _guideSiPremiereFois() async {
+    final repo = appState.repo;
+    if (await repo.getSetting(cleGuideVu) != null) return;
+    if ((await repo.lots()).isNotEmpty) {
+      // Utilisateur existant : pas de guide d'accueil.
+      await repo.setSetting(cleGuideVu, '1');
+      return;
+    }
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => const AideScreen(premiereFois: true)));
   }
 
   @override
