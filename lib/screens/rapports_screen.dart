@@ -12,6 +12,15 @@ class _Total {
   int montant = 0;
 }
 
+/// « 1 ticket », « 3 tickets ».
+String _tickets(int n) => '$n ticket${n > 1 ? 's' : ''}';
+
+/// Vert lisible sur fond clair comme sur fond sombre.
+Color _vert(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+        ? Colors.green.shade300
+        : Colors.green.shade800;
+
 /// Rapports de ventes : par jour, semaine, mois ou période libre.
 class RapportsScreen extends StatefulWidget {
   const RapportsScreen({super.key});
@@ -107,6 +116,14 @@ class _RapportsScreenState extends State<RapportsScreen> {
     _charger();
   }
 
+  /// Vrai si la période affichée contient aujourd'hui.
+  bool get _estCourant {
+    if (_mode == _Mode.periode) return true;
+    final (debut, fin) = _bornes();
+    final maintenant = DateTime.now();
+    return !maintenant.isBefore(debut) && maintenant.isBefore(fin);
+  }
+
   bool get _peutAvancer {
     if (_mode == _Mode.periode) return false;
     final (_, fin) = _bornes();
@@ -146,7 +163,7 @@ class _RapportsScreenState extends State<RapportsScreen> {
       lignes.add('');
       lignes.add('Par forfait :');
       r.parForfait.forEach((nom, t) {
-        lignes.add('- $nom : ${t.nombre} tickets, ${cdf(t.montant)}');
+        lignes.add('- $nom : ${_tickets(t.nombre)}, ${cdf(t.montant)}');
       });
     }
     if (_mode != _Mode.jour && r.parJour.isNotEmpty) {
@@ -154,7 +171,7 @@ class _RapportsScreenState extends State<RapportsScreen> {
       lignes.add('Par jour :');
       for (final e in r.parJour.entries) {
         lignes.add(
-            '- ${fmtJourCourt(e.key)} : ${e.value.nombre} tickets, ${cdf(e.value.montant)}');
+            '- ${fmtJourCourt(e.key)} : ${_tickets(e.value.nombre)}, ${cdf(e.value.montant)}');
       }
     }
     await Share.share(lignes.join('\n'));
@@ -240,16 +257,24 @@ class _RapportsScreenState extends State<RapportsScreen> {
                       dense: true,
                       contentPadding: EdgeInsets.zero,
                       title: Text(e.key),
-                      subtitle: Text('${e.value.nombre} tickets'),
+                      subtitle: Text(_tickets(e.value.nombre)),
                       trailing: Text(cdf(e.value.montant),
                           style: const TextStyle(fontWeight: FontWeight.w700)),
                     ),
                 ],
                 const SizedBox(height: 16),
                 if (_ventes.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Center(child: Text('Aucune vente sur cette période.')),
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        Icon(Icons.bar_chart_rounded,
+                            size: 56,
+                            color: Theme.of(context).colorScheme.outline),
+                        const SizedBox(height: 8),
+                        const Text('Aucune vente sur cette période.'),
+                      ],
+                    ),
                   )
                 else if (_mode == _Mode.jour)
                   ..._detailJour(context)
@@ -268,66 +293,85 @@ class _RapportsScreenState extends State<RapportsScreen> {
         label: Text(_titre()),
       );
     }
-    return Row(
+    return Column(
       children: [
-        IconButton(
-          tooltip: 'Précédent',
-          onPressed: () => _decaler(-1),
-          icon: const Icon(Icons.chevron_left_rounded),
+        Row(
+          children: [
+            IconButton(
+              tooltip: 'Précédent',
+              onPressed: () => _decaler(-1),
+              icon: const Icon(Icons.chevron_left_rounded),
+            ),
+            Expanded(
+              child: Text(
+                _titre(),
+                textAlign: TextAlign.center,
+                style: Theme.of(context)
+                    .textTheme
+                    .titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w600),
+              ),
+            ),
+            IconButton(
+              tooltip: 'Suivant',
+              onPressed: _peutAvancer ? () => _decaler(1) : null,
+              icon: const Icon(Icons.chevron_right_rounded),
+            ),
+          ],
         ),
-        Expanded(
-          child: Text(
-            _titre(),
-            textAlign: TextAlign.center,
-            style: Theme.of(context)
-                .textTheme
-                .titleMedium
-                ?.copyWith(fontWeight: FontWeight.w600),
+        if (!_estCourant)
+          TextButton.icon(
+            onPressed: () {
+              setState(() => _ancre = debutJour(DateTime.now()));
+              _charger();
+            },
+            icon: const Icon(Icons.today_rounded),
+            label: const Text("Revenir à aujourd'hui"),
           ),
-        ),
-        IconButton(
-          tooltip: 'Suivant',
-          onPressed: _peutAvancer ? () => _decaler(1) : null,
-          icon: const Icon(Icons.chevron_right_rounded),
-        ),
       ],
     );
   }
 
   Widget _resume(BuildContext context, _Agregat r) {
     final cs = Theme.of(context).colorScheme;
-    return Card(
-      color: cs.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          children: [
-            Text('Montant encaissé',
-                style: TextStyle(color: cs.onPrimaryContainer)),
-            const SizedBox(height: 4),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                cdf(r.total.montant),
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    fontWeight: FontWeight.w800, color: cs.onPrimaryContainer),
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${r.total.nombre} ticket${r.total.nombre > 1 ? 's' : ''} vendu${r.total.nombre > 1 ? 's' : ''}',
-              style: TextStyle(
-                  color: cs.onPrimaryContainer, fontWeight: FontWeight.w600),
-            ),
-            if (_mode != _Mode.jour && r.parJour.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
+    return Semantics(
+      container: true,
+      label: 'Montant encaissé ${cdf(r.total.montant)}, '
+          '${_tickets(r.total.nombre)} vendu${r.total.nombre > 1 ? 's' : ''}',
+      excludeSemantics: true,
+      child: Card(
+        color: cs.primaryContainer,
+        child: Padding(
+          padding: const EdgeInsets.all(18),
+          child: Column(
+            children: [
+              Text('Montant encaissé',
+                  style: TextStyle(color: cs.onPrimaryContainer)),
+              const SizedBox(height: 4),
+              FittedBox(
+                fit: BoxFit.scaleDown,
                 child: Text(
-                  'Moyenne : ${cdf((r.total.montant / r.parJour.length).round())} par jour avec ventes',
-                  style: TextStyle(color: cs.onPrimaryContainer),
+                  cdf(r.total.montant),
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                      fontWeight: FontWeight.w800, color: cs.onPrimaryContainer),
                 ),
               ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                '${r.total.nombre} ticket${r.total.nombre > 1 ? 's' : ''} vendu${r.total.nombre > 1 ? 's' : ''}',
+                style: TextStyle(
+                    color: cs.onPrimaryContainer, fontWeight: FontWeight.w600),
+              ),
+              if (_mode != _Mode.jour && r.parJour.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'Moyenne : ${cdf((r.total.montant / r.parJour.length).round())} par jour avec ventes',
+                    style: TextStyle(color: cs.onPrimaryContainer),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -342,7 +386,7 @@ class _RapportsScreenState extends State<RapportsScreen> {
         ListTile(
           dense: true,
           contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.check_circle_rounded, color: Colors.green),
+          leading: Icon(Icons.check_circle_rounded, color: _vert(context)),
           title: Text(v.code,
               style: const TextStyle(
                   fontWeight: FontWeight.w700, letterSpacing: 1)),
@@ -361,28 +405,34 @@ class _RapportsScreenState extends State<RapportsScreen> {
       Text('Par jour', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 6),
       for (final e in r.parJour.entries)
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(fmtJourCompact(e.key)),
-                  ),
-                  Text('${e.value.nombre} tickets  ·  ',
-                      style: Theme.of(context).textTheme.bodySmall),
-                  Text(cdf(e.value.montant),
-                      style: const TextStyle(fontWeight: FontWeight.w700)),
-                ],
-              ),
-              const SizedBox(height: 4),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: LinearProgressIndicator(
-                    minHeight: 6, value: e.value.montant / maxi),
-              ),
-            ],
+        Semantics(
+          container: true,
+          label: '${fmtJourCompact(e.key)}, ${_tickets(e.value.nombre)}, '
+              '${cdf(e.value.montant)}',
+          excludeSemantics: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(fmtJourCompact(e.key)),
+                    ),
+                    Text('${_tickets(e.value.nombre)}  ·  ',
+                        style: Theme.of(context).textTheme.bodySmall),
+                    Text(cdf(e.value.montant),
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                      minHeight: 10, value: e.value.montant / maxi),
+                ),
+              ],
+            ),
           ),
         ),
     ];
