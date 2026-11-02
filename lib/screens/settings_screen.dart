@@ -13,6 +13,8 @@ import '../sauvegarde_auto.dart';
 import '../security.dart';
 import '../state.dart';
 import '../widgets/pin_pad.dart';
+import 'dettes_screen.dart';
+import 'vendeurs_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -267,6 +269,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const ForfaitsScreen())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.account_balance_wallet_outlined),
+            title: const Text('Clients et dettes'),
+            subtitle: const Text('Ventes à crédit à encaisser'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DettesScreen())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.people_alt_outlined),
+            title: const Text('Vendeurs'),
+            subtitle: const Text('Qui vend : un rapport par vendeur'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const VendeursScreen())),
           ),
           ListTile(
             leading: const Icon(Icons.link_rounded),

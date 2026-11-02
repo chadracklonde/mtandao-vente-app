@@ -149,7 +149,8 @@ class _LotsScreenState extends State<LotsScreen> {
                 ),
                 TextSpan(
                   text:
-                      '  ·  ${lot.vendus} vendus sur ${lot.total}  ·  ${cdf(lot.montant)}',
+                      '  ·  ${lot.vendus} vendus sur ${lot.total}  ·  ${cdf(lot.montant)}'
+                      '${lot.defectueux > 0 ? '  ·  ${lot.defectueux} défectueux' : ''}',
                 ),
               ])),
             ],
@@ -166,7 +167,7 @@ Color _vert(BuildContext context) =>
         ? Colors.green.shade300
         : Colors.green.shade800;
 
-enum _Filtre { tous, restants, vendus }
+enum _Filtre { tous, restants, vendus, defectueux }
 
 /// Détail d'un lot : liste des tickets, recherche, corrections.
 class LotDetailScreen extends StatefulWidget {
@@ -313,6 +314,33 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
     appState.changed();
   }
 
+  Future<void> _signalerDefectueux(Ticket t) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Signaler ce ticket défectueux ?'),
+        content: Text(
+            'Le ticket ${t.code} ne sera plus proposé à la vente ni compté dans les restants. Vous pourrez l\'annuler plus tard.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Non')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Oui, défectueux')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await appState.repo.signalerDefectueux(t.id);
+    appState.changed();
+  }
+
+  Future<void> _reactiver(Ticket t) async {
+    await appState.repo.reactiverTicket(t.id);
+    appState.changed();
+  }
+
   @override
   Widget build(BuildContext context) {
     final lot = _lot;
@@ -338,9 +366,13 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
 
   Widget _corps(BuildContext context, Lot lot) {
     final q = _recherche.trim();
+    // Le filtre « Défectueux » n'existe que s'il y en a.
+    final filtre =
+        _filtre == _Filtre.defectueux && lot.defectueux == 0 ? _Filtre.tous : _filtre;
     final liste = _tickets.where((t) {
-      if (_filtre == _Filtre.restants && t.vendu) return false;
-      if (_filtre == _Filtre.vendus && !t.vendu) return false;
+      if (filtre == _Filtre.restants && (t.vendu || t.defectueux)) return false;
+      if (filtre == _Filtre.vendus && !t.vendu) return false;
+      if (filtre == _Filtre.defectueux && !t.defectueux) return false;
       if (q.isNotEmpty && !t.code.toLowerCase().contains(q.toLowerCase())) {
         return false;
       }
@@ -401,8 +433,12 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
                   ButtonSegment(
                       value: _Filtre.vendus,
                       label: Text('Vendus (${lot.vendus})')),
+                  if (lot.defectueux > 0)
+                    ButtonSegment(
+                        value: _Filtre.defectueux,
+                        label: Text('Défect. (${lot.defectueux})')),
                 ],
-                selected: {_filtre},
+                selected: {filtre},
                 onSelectionChanged: (s) => setState(() => _filtre = s.first),
               ),
             ],
@@ -429,11 +465,21 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
                     final t = liste[i];
                     return ListTile(
                       leading: Icon(
-                        t.vendu
-                            ? Icons.check_circle_rounded
-                            : Icons.radio_button_unchecked_rounded,
-                        color: t.vendu ? _vert(context) : cs.outline,
-                        semanticLabel: t.vendu ? 'Vendu' : 'À vendre',
+                        t.defectueux
+                            ? Icons.report_problem_rounded
+                            : t.vendu
+                                ? Icons.check_circle_rounded
+                                : Icons.radio_button_unchecked_rounded,
+                        color: t.defectueux
+                            ? cs.error
+                            : t.vendu
+                                ? _vert(context)
+                                : cs.outline,
+                        semanticLabel: t.defectueux
+                            ? 'Défectueux'
+                            : t.vendu
+                                ? 'Vendu'
+                                : 'À vendre',
                       ),
                       title: Text(t.code,
                           style: const TextStyle(
@@ -441,16 +487,40 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
                               fontSize: 18,
                               letterSpacing: 1)),
                       subtitle: Text(
-                        t.vendu && t.venduLe != null
-                            ? 'Vendu le ${fmtDateHeure(t.venduLe!)}  ·  ${cdf(t.prix)}'
-                            : [
-                                if (t.numero != null) 'n° ${t.numero}',
-                                'à vendre',
-                              ].join('  ·  '),
+                        t.defectueux
+                            ? 'Défectueux : non proposé à la vente'
+                            : t.vendu && t.venduLe != null
+                                ? 'Vendu le ${fmtDateHeure(t.venduLe!)}  ·  ${cdf(t.prix)}'
+                                    '${t.paiement == Paiement.especes ? '' : '  ·  ${Paiement.libelle(t.paiement)}'}'
+                                : [
+                                    if (t.numero != null) 'n° ${t.numero}',
+                                    'à vendre',
+                                  ].join('  ·  '),
                       ),
-                      trailing: TextButton(
-                        onPressed: () => _basculer(t),
-                        child: Text(t.vendu ? 'Remettre' : 'Marquer vendu'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (!t.defectueux)
+                            TextButton(
+                              onPressed: () => _basculer(t),
+                              child: Text(t.vendu ? 'Remettre' : 'Marquer vendu'),
+                            ),
+                          if (!t.vendu)
+                            PopupMenuButton<String>(
+                              tooltip: 'Plus d\'actions',
+                              onSelected: (v) => v == 'def'
+                                  ? _signalerDefectueux(t)
+                                  : _reactiver(t),
+                              itemBuilder: (_) => [
+                                PopupMenuItem(
+                                  value: t.defectueux ? 'react' : 'def',
+                                  child: Text(t.defectueux
+                                      ? 'Plus défectueux : remettre en vente'
+                                      : 'Signaler défectueux'),
+                                ),
+                              ],
+                            ),
+                        ],
                       ),
                     );
                   },

@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../format.dart';
 import '../models.dart';
 import '../state.dart';
+import '../widgets/dialogue_vente.dart';
 import '../widgets/ticket_card.dart';
 import 'import_flow.dart';
 
@@ -26,6 +27,8 @@ class _VenteScreenState extends State<VenteScreen> {
   Uint8List? _image;
   LotStats? _stats;
   Ticket? _dernier;
+  List<Vendeur> _vendeurs = [];
+  int? _vendeurActifId;
   bool _chargement = true;
   bool _occupe = false;
 
@@ -46,6 +49,50 @@ class _VenteScreenState extends State<VenteScreen> {
     _minuteurBandeau?.cancel();
     appState.removeListener(_charger);
     super.dispose();
+  }
+
+  Vendeur? get _vendeurActif {
+    for (final v in _vendeurs) {
+      if (v.id == _vendeurActifId) return v;
+    }
+    return null;
+  }
+
+  Future<void> _choisirVendeur() async {
+    final choix = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text('Qui vend ?',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            ),
+            ListTile(
+              leading: Icon(_vendeurActifId == null
+                  ? Icons.radio_button_checked
+                  : Icons.radio_button_unchecked),
+              title: const Text('Aucun vendeur précis'),
+              onTap: () => Navigator.pop(ctx, -1),
+            ),
+            for (final v in _vendeurs)
+              ListTile(
+                leading: Icon(v.id == _vendeurActifId
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked),
+                title: Text(v.nom),
+                onTap: () => Navigator.pop(ctx, v.id),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (choix == null) return;
+    await appState.repo.definirVendeurActif(choix == -1 ? null : choix);
+    appState.changed();
   }
 
   /// Affiche un message en haut de l'écran, sans jamais recouvrir les boutons.
@@ -89,6 +136,8 @@ class _VenteScreenState extends State<VenteScreen> {
     Uint8List? image;
     LotStats? stats;
     Ticket? dernier;
+    final vendeurs = await repo.vendeurs(seulementActifs: true);
+    final vendeurActif = await repo.vendeurActifId();
     if (lot != null) {
       ticket = await repo.prochainTicket(lot.id);
       if (ticket != null) image = await repo.imageTicket(ticket.id);
@@ -103,6 +152,8 @@ class _VenteScreenState extends State<VenteScreen> {
       _image = image;
       _stats = stats;
       _dernier = dernier;
+      _vendeurs = vendeurs;
+      _vendeurActifId = vendeurActif;
       _chargement = false;
     });
   }
@@ -112,34 +163,41 @@ class _VenteScreenState extends State<VenteScreen> {
     if (t == null || _occupe) return;
     _occupe = true;
     try {
-      // Confirmation pour éviter un appui par inadvertance.
-      final confirme = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Confirmer la vente ?'),
-          content: Text(
-              'Ticket ${t.code}\nMontant : ${cdf(t.prix)}\n\nCe ticket sera marqué comme vendu.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Non'),
-            ),
-            FilledButton(
-              autofocus: true,
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Oui, vendu'),
-            ),
-          ],
-        ),
+      // Confirmation pour éviter un appui par inadvertance : on choisit aussi
+      // le mode de paiement (espèces par défaut).
+      final repo = appState.repo;
+      final clients = await repo.clients();
+      if (!mounted) return;
+      final vendeur = _vendeurActif;
+      final choix = await demanderVente(
+        context,
+        ticket: t,
+        clients: clients,
+        creerClient: (nom, tel) => repo.ajouterClient(nom, telephone: tel),
+        vendeurNom: vendeur?.nom,
       );
-      if (confirme != true) return;
-      final ok = await appState.repo.vendre(t.id);
+      if (choix == null) return;
+      final ok = await repo.vendre(
+        t.id,
+        paiement: choix.paiement,
+        clientId: choix.clientId,
+        vendeurId: vendeur?.id,
+      );
       HapticFeedback.mediumImpact();
       appState.changed();
       if (!mounted) return;
       if (ok) {
-        _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}',
+        final detail = switch (choix.paiement) {
+          Paiement.especes => '',
+          Paiement.credit =>
+            '  ·  à crédit (${clients.where((c) => c.id == choix.clientId).map((c) => c.nom).firstOrNull ?? 'client'})',
+          final p => '  ·  ${Paiement.libelle(p).toLowerCase()}',
+        };
+        _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}$detail',
             annulable: true);
+      } else {
+        _afficherBandeau('Ticket ${t.code} indisponible : il a déjà été vendu '
+            'ou signalé défectueux.');
       }
     } finally {
       _occupe = false;
@@ -268,6 +326,15 @@ class _VenteScreenState extends State<VenteScreen> {
           ),
           child: Column(
             children: [
+              if (_vendeurs.isNotEmpty)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: ActionChip(
+                    avatar: const Icon(Icons.person_outline_rounded, size: 18),
+                    label: Text(_vendeurActif?.nom ?? 'Choisir le vendeur'),
+                    onPressed: _choisirVendeur,
+                  ),
+                ),
               if (lotsChoix.length > 1)
                 ConstrainedBox(
                   constraints: const BoxConstraints(minHeight: 48),
