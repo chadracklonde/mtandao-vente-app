@@ -58,12 +58,20 @@ class Repo {
 
   // -------------------------------------------------------------------- lots
 
-  static const _lotsSql = '''
+  /// Condition SQL : l'argent d'un ticket vendu est réellement rentré
+  /// (espèces, mobile money, ou crédit payé). Exclut offerts et crédits dus.
+  static String encaisse([String t = '']) =>
+      "(${t}paiement IN ('especes','mobile') "
+      "OR (${t}paiement = 'credit' AND ${t}paye_le IS NOT NULL))";
+
+  static final _lotsSql = '''
     SELECT l.*, f.nom AS forfait_nom,
       (SELECT COUNT(*) FROM tickets t WHERE t.lot_id = l.id) AS total,
       (SELECT COUNT(*) FROM tickets t WHERE t.lot_id = l.id AND t.vendu = 1) AS vendus,
+      (SELECT COUNT(*) FROM tickets t
+         WHERE t.lot_id = l.id AND t.vendu = 0 AND t.defectueux = 1) AS defectueux,
       (SELECT COALESCE(SUM(t.prix), 0) FROM tickets t
-         WHERE t.lot_id = l.id AND t.vendu = 1) AS montant
+         WHERE t.lot_id = l.id AND t.vendu = 1 AND ${encaisse('t.')}) AS montant
     FROM lots l JOIN forfaits f ON f.id = l.forfait_id
   ''';
 
@@ -160,7 +168,7 @@ class Repo {
 
   Future<Ticket?> prochainTicket(int lotId) async {
     final r = await db.query('tickets',
-        where: 'lot_id = ? AND vendu = 0',
+        where: 'lot_id = ? AND vendu = 0 AND defectueux = 0',
         whereArgs: [lotId],
         orderBy: 'position ASC, id ASC',
         limit: 1);
@@ -182,12 +190,14 @@ class Repo {
     final r = await db.rawQuery('''
       SELECT COUNT(*) AS total,
              COALESCE(SUM(CASE WHEN vendu = 1 THEN 1 ELSE 0 END), 0) AS vendus,
-             COALESCE(SUM(CASE WHEN vendu = 1 THEN prix ELSE 0 END), 0) AS montant
+             COALESCE(SUM(CASE WHEN vendu = 0 AND defectueux = 1 THEN 1 ELSE 0 END), 0) AS defectueux,
+             COALESCE(SUM(CASE WHEN vendu = 1 AND ${encaisse()} THEN prix ELSE 0 END), 0) AS montant
       FROM tickets WHERE lot_id = ?''', [lotId]);
     final m = r.first;
     return LotStats(
       total: (m['total'] as int?) ?? 0,
       vendus: (m['vendus'] as int?) ?? 0,
+      defectueux: (m['defectueux'] as int?) ?? 0,
       montant: (m['montant'] as int?) ?? 0,
     );
   }
@@ -207,20 +217,66 @@ class Repo {
     return r.first['data'] as Uint8List;
   }
 
-  /// Marque un ticket comme vendu. Retourne faux s'il l'était déjà.
-  Future<bool> vendre(int ticketId) async {
+  /// Marque un ticket comme vendu. Retourne faux s'il l'était déjà, ou s'il
+  /// est signalé défectueux.
+  ///
+  /// [paiement] : espèces par défaut. Une vente à crédit exige un [clientId].
+  Future<bool> vendre(
+    int ticketId, {
+    String paiement = Paiement.especes,
+    int? clientId,
+    int? vendeurId,
+  }) async {
+    if (!Paiement.tous.contains(paiement)) {
+      throw ArgumentError('Mode de paiement inconnu : $paiement');
+    }
+    if (paiement == Paiement.credit && clientId == null) {
+      throw ArgumentError('Une vente à crédit exige un client.');
+    }
     final n = await db.update(
       'tickets',
-      {'vendu': 1, 'vendu_le': DateTime.now().millisecondsSinceEpoch},
-      where: 'id = ? AND vendu = 0',
+      {
+        'vendu': 1,
+        'vendu_le': DateTime.now().millisecondsSinceEpoch,
+        'paiement': paiement,
+        'client_id': paiement == Paiement.credit ? clientId : null,
+        'paye_le': null,
+        'vendeur_id': vendeurId,
+      },
+      where: 'id = ? AND vendu = 0 AND defectueux = 0',
       whereArgs: [ticketId],
     );
     return n > 0;
   }
 
-  /// Remet un ticket en stock.
+  /// Remet un ticket en stock (annule la vente : paiement, client et vendeur
+  /// sont effacés, une dette éventuelle disparaît).
   Future<void> remettreEnStock(int ticketId) async {
-    await db.update('tickets', {'vendu': 0, 'vendu_le': null},
+    await db.update(
+        'tickets',
+        {
+          'vendu': 0,
+          'vendu_le': null,
+          'paiement': Paiement.especes,
+          'client_id': null,
+          'paye_le': null,
+          'vendeur_id': null,
+        },
+        where: 'id = ?',
+        whereArgs: [ticketId]);
+  }
+
+  /// Signale un ticket non vendu comme défectueux : il n'est plus proposé et
+  /// n'est plus compté dans les restants. Retourne faux s'il est déjà vendu.
+  Future<bool> signalerDefectueux(int ticketId) async {
+    final n = await db.update('tickets', {'defectueux': 1},
+        where: 'id = ? AND vendu = 0', whereArgs: [ticketId]);
+    return n > 0;
+  }
+
+  /// Annule le signalement : le ticket peut de nouveau être vendu.
+  Future<void> reactiverTicket(int ticketId) async {
+    await db.update('tickets', {'defectueux': 0},
         where: 'id = ?', whereArgs: [ticketId]);
   }
 
@@ -236,10 +292,14 @@ class Repo {
 
   Future<List<VenteLigne>> ventes(DateTime debut, DateTime finExclue) async {
     final r = await db.rawQuery('''
-      SELECT t.code, t.prix, t.vendu_le, f.nom AS forfait_nom, l.nom AS lot_nom
+      SELECT t.code, t.prix, t.vendu_le, t.paiement, t.paye_le,
+             f.nom AS forfait_nom, l.nom AS lot_nom,
+             v.nom AS vendeur_nom, c.nom AS client_nom
       FROM tickets t
       JOIN forfaits f ON f.id = t.forfait_id
       JOIN lots l ON l.id = t.lot_id
+      LEFT JOIN vendeurs v ON v.id = t.vendeur_id
+      LEFT JOIN clients c ON c.id = t.client_id
       WHERE t.vendu = 1 AND t.vendu_le >= ? AND t.vendu_le < ?
       ORDER BY t.vendu_le DESC''', [
       debut.millisecondsSinceEpoch,
@@ -253,7 +313,106 @@ class Repo {
                   DateTime.fromMillisecondsSinceEpoch(m['vendu_le'] as int),
               forfaitNom: m['forfait_nom'] as String,
               lotNom: m['lot_nom'] as String,
+              paiement: (m['paiement'] as String?) ?? Paiement.especes,
+              vendeurNom: m['vendeur_nom'] as String?,
+              clientNom: m['client_nom'] as String?,
+              payeLe: m['paye_le'] == null
+                  ? null
+                  : DateTime.fromMillisecondsSinceEpoch(m['paye_le'] as int),
             ))
         .toList();
+  }
+
+  // ----------------------------------------------------------------- clients
+
+  Future<List<Client>> clients() async {
+    final r = await db.query('clients', orderBy: 'nom COLLATE NOCASE');
+    return r.map(Client.fromMap).toList();
+  }
+
+  Future<int> ajouterClient(String nom, {String? telephone}) {
+    final tel = telephone?.trim();
+    return db.insert('clients', {
+      'nom': nom.trim(),
+      'telephone': (tel == null || tel.isEmpty) ? null : tel,
+      'cree_le': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  /// Tickets vendus à crédit et pas encore payés, du plus ancien au plus récent.
+  Future<List<DetteLigne>> dettes() async {
+    final r = await db.rawQuery('''
+      SELECT t.id AS ticket_id, t.code, t.prix, t.vendu_le,
+             c.id AS client_id, c.nom AS client_nom, c.telephone
+      FROM tickets t JOIN clients c ON c.id = t.client_id
+      WHERE t.vendu = 1 AND t.paiement = 'credit' AND t.paye_le IS NULL
+      ORDER BY c.nom COLLATE NOCASE, t.vendu_le''');
+    return r
+        .map((m) => DetteLigne(
+              ticketId: m['ticket_id'] as int,
+              code: m['code'] as String,
+              prix: m['prix'] as int,
+              venduLe:
+                  DateTime.fromMillisecondsSinceEpoch(m['vendu_le'] as int),
+              clientId: m['client_id'] as int,
+              clientNom: m['client_nom'] as String,
+              clientTelephone: m['telephone'] as String?,
+            ))
+        .toList();
+  }
+
+  /// Enregistre le paiement d'un ticket vendu à crédit.
+  Future<void> marquerPaye(int ticketId) async {
+    await db.update('tickets',
+        {'paye_le': DateTime.now().millisecondsSinceEpoch},
+        where: "id = ? AND paiement = 'credit' AND paye_le IS NULL",
+        whereArgs: [ticketId]);
+  }
+
+  /// Le client a tout payé : solde toutes ses dettes.
+  Future<void> marquerClientPaye(int clientId) async {
+    await db.update('tickets',
+        {'paye_le': DateTime.now().millisecondsSinceEpoch},
+        where: "client_id = ? AND paiement = 'credit' AND paye_le IS NULL",
+        whereArgs: [clientId]);
+  }
+
+  // ---------------------------------------------------------------- vendeurs
+
+  static const String cleVendeurActif = 'vendeur_actif';
+
+  Future<List<Vendeur>> vendeurs({bool seulementActifs = false}) async {
+    final r = await db.query('vendeurs',
+        where: seulementActifs ? 'actif = 1' : null,
+        orderBy: 'nom COLLATE NOCASE');
+    return r.map(Vendeur.fromMap).toList();
+  }
+
+  Future<int> ajouterVendeur(String nom) =>
+      db.insert('vendeurs', {'nom': nom.trim(), 'actif': 1});
+
+  Future<void> modifierVendeur(int id, {String? nom, bool? actif}) async {
+    final v = <String, Object?>{};
+    if (nom != null) v['nom'] = nom.trim();
+    if (actif != null) v['actif'] = actif ? 1 : 0;
+    if (v.isEmpty) return;
+    await db.update('vendeurs', v, where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Vendeur choisi sur ce téléphone, ou null (ventes sans vendeur).
+  Future<int?> vendeurActifId() async {
+    final id = int.tryParse(await getSetting(cleVendeurActif) ?? '');
+    if (id == null) return null;
+    final r = await db.query('vendeurs',
+        where: 'id = ? AND actif = 1', whereArgs: [id], limit: 1);
+    return r.isEmpty ? null : id;
+  }
+
+  Future<void> definirVendeurActif(int? id) async {
+    if (id == null) {
+      await removeSetting(cleVendeurActif);
+    } else {
+      await setSetting(cleVendeurActif, '$id');
+    }
   }
 }
