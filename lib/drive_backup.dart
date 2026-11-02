@@ -57,10 +57,23 @@ class DriveBackup {
   static const String cleEssai = 'drive_dernier_essai';
   static const String cleErreur = 'drive_erreur';
 
+  /// « 1 » : n'envoyer que sur Wi-Fi (économise les données mobiles).
+  static const String cleWifi = 'drive_wifi';
+
+  /// Taille (en octets) du dernier fichier envoyé.
+  static const String cleTaille = 'drive_taille';
+
   static bool _initialise = false;
   static bool _enCours = false;
 
   // ------------------------------------------------------- règles (testables)
+
+  /// Taille lisible : « 850 Ko », « 4,2 Mo ».
+  static String tailleLisible(int octets) {
+    if (octets < 1024 * 1024) return '${(octets / 1024).ceil()} Ko';
+    final mo = octets / (1024 * 1024);
+    return '${mo.toStringAsFixed(1).replaceAll('.', ',')} Mo';
+  }
 
   /// Vrai si [nom] est un fichier de sauvegarde créé par Mtandao.
   static bool estSauvegarde(String nom) =>
@@ -223,12 +236,14 @@ class DriveBackup {
       final dossier = await _dossierId(api);
       fichier = await Sauvegarde.exporter(repo);
       final nom = fichier.uri.pathSegments.last;
+      final taille = await fichier.length();
       await api.files.create(
         drive.File(name: nom, parents: [dossier]),
-        uploadMedia: drive.Media(fichier.openRead(), await fichier.length(),
+        uploadMedia: drive.Media(fichier.openRead(), taille,
             contentType: 'application/octet-stream'),
         $fields: 'id',
       );
+      await repo.setSetting(cleTaille, '$taille');
 
       // Le nouveau fichier est bien parti : on peut ranger les anciens.
       await _nettoyer(api, dossier);

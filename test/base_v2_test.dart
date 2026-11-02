@@ -320,6 +320,21 @@ void main() {
     });
   });
 
+  group('À recevoir d\'un lot', () {
+    test('somme des crédits non payés, avant suppression du lot', () async {
+      final (repo, lotId) = await _repoAvecLot();
+      final ts = await _tickets(repo, lotId);
+      final client = await repo.ajouterClient('Léa');
+      await repo.vendre(ts[0].id, paiement: Paiement.credit, clientId: client);
+      await repo.vendre(ts[1].id, paiement: Paiement.credit, clientId: client);
+      await repo.vendre(ts[2].id);
+      expect(await repo.aRecevoirDuLot(lotId), 2000);
+      await repo.marquerPaye((await repo.dettes()).first.ticketId);
+      expect(await repo.aRecevoirDuLot(lotId), 1000);
+      expect(await repo.aRecevoirDuLot(9999), 0);
+    });
+  });
+
   group('Vendeurs', () {
     test('vendeur actif : seulement un vendeur actif existant', () async {
       final repo = Repo(await _neuve());

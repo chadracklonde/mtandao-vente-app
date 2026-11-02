@@ -37,6 +37,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // Sauvegarde automatique Google Drive.
   bool _driveActif = false;
   bool _driveOccupe = false;
+  bool _driveWifi = false;
+  int? _driveTaille;
   String? _driveEmail;
   DateTime? _driveSucces;
   String? _driveErreur;
@@ -68,8 +70,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final driveSucces = int.tryParse(
         await appState.repo.getSetting(DriveBackup.cleSucces) ?? '');
     final driveErreur = await appState.repo.getSetting(DriveBackup.cleErreur);
+    final driveWifi =
+        await appState.repo.getSetting(DriveBackup.cleWifi) == '1';
+    final driveTaille = int.tryParse(
+        await appState.repo.getSetting(DriveBackup.cleTaille) ?? '');
     if (!mounted) return;
     setState(() {
+      _driveWifi = driveWifi;
+      _driveTaille = driveTaille;
       _seuilStock = seuil;
       _driveActif = driveActif;
       _driveEmail = driveEmail;
@@ -176,6 +184,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _basculerWifiDrive(bool wifiSeulement) async {
+    await appState.repo
+        .setSetting(DriveBackup.cleWifi, wifiSeulement ? '1' : '0');
+    try {
+      await SauvegardeAuto.planifier(wifiSeulement: wifiSeulement);
+    } catch (_) {}
+    await _charger();
+  }
+
   Future<void> _deconnecterDrive() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -197,6 +214,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await SauvegardeAuto.arreter();
     await DriveBackup.deconnecter();
     for (final cle in [
+      DriveBackup.cleWifi,
+      DriveBackup.cleTaille,
       DriveBackup.cleActif,
       DriveBackup.cleEmail,
       DriveBackup.cleEmpreinte,
@@ -441,11 +460,21 @@ extension on _SettingsScreenState {
                 ? 'Aucune sauvegarde envoyée pour le moment.'
                 : 'Dernier envoi : ${fmtJourCourt(succes)} à ${fmtHeure(succes)}',
             'Chaque heure, ${DriveBackup.garder} fichiers gardés dans « ${DriveBackup.dossierNom} ».',
+            if (_driveTaille != null)
+              'Taille d\'une sauvegarde : ${DriveBackup.tailleLisible(_driveTaille!)}.',
             if (_driveErreur != null) _driveErreur!,
           ].join('\n'),
           style: _driveErreur == null ? null : TextStyle(color: cs.error),
         ),
         isThreeLine: true,
+      ),
+      SwitchListTile(
+        secondary: const Icon(Icons.wifi_rounded),
+        title: const Text('Wi-Fi seulement'),
+        subtitle: const Text(
+            'Évite d\'utiliser vos données mobiles : chaque sauvegarde contient les images des tickets et peut peser plusieurs Mo.'),
+        value: _driveWifi,
+        onChanged: _driveOccupe ? null : _basculerWifiDrive,
       ),
       ListTile(
         leading: _driveOccupe

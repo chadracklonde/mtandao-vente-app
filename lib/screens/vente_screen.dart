@@ -669,7 +669,10 @@ class _VenteScreenState extends State<VenteScreen> {
             const SizedBox(height: 12),
             Text('Lot terminé', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 6),
-            Text('Tous les tickets de « ${lot.nom} » sont vendus.',
+            Text(
+                lot.defectueux > 0
+                    ? 'Plus aucun ticket à vendre dans « ${lot.nom} » (${lot.defectueux} défectueux).'
+                    : 'Tous les tickets de « ${lot.nom} » sont vendus.',
                 textAlign: TextAlign.center),
             const SizedBox(height: 20),
             if (suivant.isNotEmpty)

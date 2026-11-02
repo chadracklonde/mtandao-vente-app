@@ -7,6 +7,7 @@ FichierDrive f(String nom, int jour) =>
 String sauvegarde(int jour) => 'mtandao_sauvegarde_202601${jour.toString().padLeft(2, '0')}_0800.mtandao';
 
 void main() {
+  tailleTests();
   group('DriveBackup.estSauvegarde', () {
     test('reconnaît les fichiers créés par Mtandao', () {
       expect(DriveBackup.estSauvegarde('mtandao_sauvegarde_20260105_0830.mtandao'), isTrue);
@@ -58,6 +59,17 @@ void main() {
     test('accepte un autre nombre à garder', () {
       final fichiers = [for (var i = 1; i <= 5; i++) f(sauvegarde(i), i)];
       expect(DriveBackup.aSupprimer(fichiers, garder: 3), hasLength(2));
+    });
+  });
+}
+
+void tailleTests() {
+  group('DriveBackup.tailleLisible', () {
+    test('en Ko puis en Mo', () {
+      expect(DriveBackup.tailleLisible(500), '1 Ko');
+      expect(DriveBackup.tailleLisible(850 * 1024), '850 Ko');
+      expect(DriveBackup.tailleLisible((4.25 * 1024 * 1024).round()), '4,3 Mo');
+      expect(DriveBackup.tailleLisible(12 * 1024 * 1024), '12,0 Mo');
     });
   });
 }
