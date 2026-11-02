@@ -29,6 +29,8 @@ class Sauvegarde {
       cle.startsWith('drive_') ||
       cle == 'lot_actif' ||
       cle == 'vendeur_actif' ||
+      cle == 'theme' ||
+      cle == 'guide_vu' ||
       cle == 'derniere_sauvegarde';
 
   /// Crée le fichier de sauvegarde dans le dossier temporaire et le retourne.

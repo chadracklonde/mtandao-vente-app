@@ -41,22 +41,25 @@ class MtandaoApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Mtandao',
-      debugShowCheckedModeBanner: false,
-      theme: _theme(Brightness.light),
-      darkTheme: _theme(Brightness.dark),
-      themeMode: ThemeMode.system,
-      locale: const Locale('fr'),
-      supportedLocales: const [Locale('fr')],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      builder: (context, child) =>
-          LockGate(child: child ?? const SizedBox.shrink()),
-      home: const HomeShell(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeMode,
+      builder: (context, mode, _) => MaterialApp(
+        title: 'Mtandao',
+        debugShowCheckedModeBanner: false,
+        theme: _theme(Brightness.light),
+        darkTheme: _theme(Brightness.dark),
+        themeMode: mode,
+        locale: const Locale('fr'),
+        supportedLocales: const [Locale('fr')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        builder: (context, child) =>
+            LockGate(child: child ?? const SizedBox.shrink()),
+        home: const HomeShell(),
+      ),
     );
   }
 }
