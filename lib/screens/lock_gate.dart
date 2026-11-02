@@ -178,7 +178,10 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
     switch (_etat) {
       case _Etat.chargement:
         return Scaffold(
-          body: Center(child: Image.asset('assets/logo.png', height: 96)),
+          body: Center(
+            child: Image.asset('assets/logo.png',
+                height: 96, excludeFromSemantics: true),
+          ),
         );
       case _Etat.creation:
         titre = 'Créez votre code PIN';
@@ -205,7 +208,8 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Image.asset('assets/logo.png', height: 88),
+                Image.asset('assets/logo.png',
+                    height: 88, excludeFromSemantics: true),
                 const SizedBox(height: 8),
                 Text('Mtandao',
                     style: Theme.of(context)
@@ -224,6 +228,8 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
                   const SizedBox(height: 16),
                   TextButton.icon(
                     onPressed: _essayerBiometrie,
+                    style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 52)),
                     icon: const Icon(Icons.fingerprint_rounded),
                     label: const Text('Empreinte ou visage'),
                   ),
