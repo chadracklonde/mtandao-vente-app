@@ -20,6 +20,12 @@ echo "→ Nom affiché sous l'icône : Mtandao"
 manifest="android/app/src/main/AndroidManifest.xml"
 sed -i 's/android:label="[^"]*"/android:label="Mtandao"/' "$manifest"
 
+echo "→ Empreinte digitale / visage (autorisation + activité compatible)…"
+if ! grep -q "USE_BIOMETRIC" "$manifest"; then
+  sed -i 's#<application#<uses-permission android:name="android.permission.USE_BIOMETRIC"/>\n    <application#' "$manifest"
+fi
+find android/app/src/main -name 'MainActivity.*' -exec sed -i 's/\bFlutterActivity\b/FlutterFragmentActivity/g' {} +
+
 echo "→ Signature de l'APK (clé personnelle, voir README)…"
 python3 tool/configurer_signature.py
 

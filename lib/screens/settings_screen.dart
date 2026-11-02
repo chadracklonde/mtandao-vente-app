@@ -21,6 +21,8 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   String _loginUrl = 'http://mtandao.wifi';
   DateTime? _derniereSauvegarde;
+  bool _bioDispo = false;
+  bool _bioActive = false;
 
   @override
   void initState() {
@@ -32,8 +34,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final url = await appState.repo.getSetting('login_url');
     final s = int.tryParse(
         await appState.repo.getSetting('derniere_sauvegarde') ?? '');
+    final bioDispo = await Biometrie.disponible();
+    final bioActive = await Biometrie.active();
     if (!mounted) return;
     setState(() {
+      _bioDispo = bioDispo;
+      _bioActive = bioActive;
       if (url != null && url.isNotEmpty) _loginUrl = url;
       _derniereSauvegarde =
           s == null ? null : DateTime.fromMillisecondsSinceEpoch(s);
@@ -170,6 +176,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const ChangerPinScreen())),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.fingerprint_rounded),
+            title: const Text('Empreinte digitale ou visage'),
+            subtitle: Text(_bioDispo
+                ? 'Déverrouiller Mtandao sans taper le PIN. Le PIN reste possible.'
+                : 'Indisponible : aucune empreinte ou visage enregistré sur ce téléphone.'),
+            value: _bioActive && _bioDispo,
+            onChanged: _bioDispo
+                ? (v) async {
+                    if (v) {
+                      // On vérifie d'abord que ça marche, pour ne pas s'enfermer dehors.
+                      final ok = await Biometrie.demander(
+                          'Confirmez pour activer le déverrouillage');
+                      if (!ok) return;
+                    }
+                    await Biometrie.definirActive(v);
+                    _charger();
+                  }
+                : null,
           ),
           const _Entete('Données'),
           ListTile(

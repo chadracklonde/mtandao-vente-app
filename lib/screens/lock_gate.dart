@@ -26,6 +26,8 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
   int _echecs = 0;
   DateTime? _bloqueJusqua;
   DateTime? _pauseLe;
+  bool _bioActive = false;
+  bool _bioEnCours = false;
 
   @override
   void initState() {
@@ -42,8 +44,29 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
 
   Future<void> _init() async {
     final defini = await PinService.estDefini();
+    final bio = defini && await Biometrie.active() && await Biometrie.disponible();
     if (!mounted) return;
-    setState(() => _etat = defini ? _Etat.verrouille : _Etat.creation);
+    setState(() {
+      _bioActive = bio;
+      _etat = defini ? _Etat.verrouille : _Etat.creation;
+    });
+    if (bio) _essayerBiometrie();
+  }
+
+  /// Fenêtre système d'empreinte / visage. En cas d'échec ou d'annulation,
+  /// le PIN reste affiché et utilisable.
+  Future<void> _essayerBiometrie() async {
+    if (_bioEnCours || _etat != _Etat.verrouille) return;
+    _bioEnCours = true;
+    final ok = await Biometrie.demander('Déverrouillez Mtandao');
+    _bioEnCours = false;
+    if (!mounted || !ok || _etat != _Etat.verrouille) return;
+    _echecs = 0;
+    setState(() {
+      _etat = _Etat.ouvert;
+      _erreur = false;
+      _message = null;
+    });
   }
 
   @override
@@ -61,8 +84,16 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
           _erreur = false;
           _message = null;
         });
+        _rafraichirBio();
       }
     }
+  }
+
+  Future<void> _rafraichirBio() async {
+    final bio = await Biometrie.active() && await Biometrie.disponible();
+    if (!mounted) return;
+    setState(() => _bioActive = bio);
+    if (bio) _essayerBiometrie();
   }
 
   Future<void> _surCreation(String pin) async {
@@ -189,6 +220,14 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
                   erreur: _erreur,
                   onComplete: action,
                 ),
+                if (_etat == _Etat.verrouille && _bioActive) ...[
+                  const SizedBox(height: 16),
+                  TextButton.icon(
+                    onPressed: _essayerBiometrie,
+                    icon: const Icon(Icons.fingerprint_rounded),
+                    label: const Text('Empreinte ou visage'),
+                  ),
+                ],
               ],
             ),
           ),
