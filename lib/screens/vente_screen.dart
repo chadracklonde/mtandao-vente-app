@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -28,6 +29,11 @@ class _VenteScreenState extends State<VenteScreen> {
   bool _chargement = true;
   bool _occupe = false;
 
+  // Bannière de confirmation (remplace la barre du bas, qui masquait VENDU).
+  String? _bandeau;
+  bool _bandeauAnnulable = false;
+  Timer? _minuteurBandeau;
+
   @override
   void initState() {
     super.initState();
@@ -37,8 +43,27 @@ class _VenteScreenState extends State<VenteScreen> {
 
   @override
   void dispose() {
+    _minuteurBandeau?.cancel();
     appState.removeListener(_charger);
     super.dispose();
+  }
+
+  /// Affiche un message en haut de l'écran, sans jamais recouvrir les boutons.
+  void _afficherBandeau(String message,
+      {bool annulable = false, int secondes = 4}) {
+    _minuteurBandeau?.cancel();
+    setState(() {
+      _bandeau = message;
+      _bandeauAnnulable = annulable;
+    });
+    _minuteurBandeau = Timer(Duration(seconds: secondes), () {
+      if (mounted) setState(() => _bandeau = null);
+    });
+  }
+
+  void _fermerBandeau() {
+    _minuteurBandeau?.cancel();
+    if (mounted) setState(() => _bandeau = null);
   }
 
   Future<void> _charger() async {
@@ -113,16 +138,8 @@ class _VenteScreenState extends State<VenteScreen> {
       appState.changed();
       if (!mounted) return;
       if (ok) {
-        ScaffoldMessenger.of(context)
-          ..clearSnackBars()
-          ..showSnackBar(SnackBar(
-            content: Text('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}'),
-            duration: const Duration(seconds: 4),
-            action: SnackBarAction(
-              label: 'ANNULER',
-              onPressed: () => _annuler(confirmer: false),
-            ),
-          ));
+        _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}',
+            annulable: true);
       }
     } finally {
       _occupe = false;
@@ -157,12 +174,7 @@ class _VenteScreenState extends State<VenteScreen> {
     await appState.repo.annulerDerniereVente(lot.id);
     appState.changed();
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text('Ticket ${dernier.code} remis en vente'),
-        duration: const Duration(seconds: 2),
-      ));
+    _afficherBandeau('Ticket ${dernier.code} remis en vente', secondes: 3);
   }
 
   Future<void> _partager() async {
@@ -257,18 +269,24 @@ class _VenteScreenState extends State<VenteScreen> {
           child: Column(
             children: [
               if (lotsChoix.length > 1)
-                DropdownButton<int>(
-                  value: lot.id,
-                  isDense: true,
-                  underline: const SizedBox.shrink(),
-                  items: [
-                    for (final l in lotsChoix)
-                      DropdownMenuItem(
-                        value: l.id,
-                        child: Text('${l.nom}  ·  ${l.restants} restants'),
-                      ),
-                  ],
-                  onChanged: _changerLot,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: DropdownButton<int>(
+                    value: lot.id,
+                    isExpanded: true,
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      for (final l in lotsChoix)
+                        DropdownMenuItem(
+                          value: l.id,
+                          child: Text(
+                            '${l.nom}  ·  ${l.restants} restants',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: _changerLot,
+                  ),
                 )
               else
                 Text(lot.nom,
@@ -278,17 +296,20 @@ class _VenteScreenState extends State<VenteScreen> {
               Row(
                 children: [
                   _stat(context, '${stats.vendus}', 'déjà vendus', cs.primary),
-                  _stat(context, '${stats.restants}', 'restants', cs.onSurface),
-                  _stat(context, cdf(stats.montant), 'encaissé',
-                      Colors.green.shade700),
+                  _stat(context, '${stats.restants}', 'restants', cs.onSurface,
+                      grand: true),
+                  _stat(context, cdf(stats.montant), 'encaissé', _vert(context)),
                 ],
               ),
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  minHeight: 6,
+                  minHeight: 8,
                   value: stats.total == 0 ? 0 : stats.vendus / stats.total,
+                  semanticsLabel: 'Progression du lot',
+                  semanticsValue:
+                      '${stats.vendus} tickets vendus sur ${stats.total}',
                 ),
               ),
               if (_dernier != null)
@@ -305,6 +326,15 @@ class _VenteScreenState extends State<VenteScreen> {
                 ),
             ],
           ),
+        ),
+
+        // ------------------------------------------- confirmation de la vente
+        AnimatedSize(
+          duration: const Duration(milliseconds: 150),
+          alignment: Alignment.topCenter,
+          child: _bandeau == null
+              ? const SizedBox(width: double.infinity)
+              : _bandeauVente(context),
         ),
 
         // ---------------------------------------------------------- le ticket
@@ -332,11 +362,11 @@ class _VenteScreenState extends State<VenteScreen> {
                 children: [
                   SizedBox(
                     width: double.infinity,
-                    height: 68,
+                    height: 72,
                     child: FilledButton.icon(
                       onPressed: _vendre,
                       style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
+                        backgroundColor: Colors.green.shade800,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16)),
@@ -356,7 +386,7 @@ class _VenteScreenState extends State<VenteScreen> {
                               _dernier == null ? null : () => _annuler(),
                           style: OutlinedButton.styleFrom(
                               foregroundColor: cs.error,
-                              minimumSize: const Size.fromHeight(46)),
+                              minimumSize: const Size.fromHeight(52)),
                           icon: const Icon(Icons.undo_rounded),
                           label: const Text('Annuler'),
                         ),
@@ -366,7 +396,7 @@ class _VenteScreenState extends State<VenteScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _partager,
                           style: OutlinedButton.styleFrom(
-                              minimumSize: const Size.fromHeight(46)),
+                              minimumSize: const Size.fromHeight(52)),
                           icon: const Icon(Icons.share_rounded),
                           label: const Text('Partager'),
                         ),
@@ -381,18 +411,66 @@ class _VenteScreenState extends State<VenteScreen> {
     );
   }
 
-  Widget _stat(BuildContext context, String valeur, String libelle, Color c) {
+  Widget _bandeauVente(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Semantics(
+      liveRegion: true,
+      container: true,
+      child: Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(minHeight: 48),
+        padding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
+        color: cs.secondaryContainer,
+        child: Row(
+          children: [
+            Icon(Icons.check_circle_rounded, color: _vert(context)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                _bandeau!,
+                style: TextStyle(
+                    color: cs.onSecondaryContainer,
+                    fontWeight: FontWeight.w600),
+              ),
+            ),
+            if (_bandeauAnnulable)
+              TextButton(
+                onPressed: () {
+                  _fermerBandeau();
+                  _annuler(confirmer: false);
+                },
+                child: const Text('ANNULER'),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Vert lisible sur fond clair comme sur fond sombre.
+  Color _vert(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+          ? Colors.green.shade300
+          : Colors.green.shade800;
+
+  Widget _stat(BuildContext context, String valeur, String libelle, Color c,
+      {bool grand = false}) {
+    final texte = Theme.of(context).textTheme;
     return Expanded(
-      child: Column(
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(valeur,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800, color: c)),
-          ),
-          Text(libelle, style: Theme.of(context).textTheme.bodySmall),
-        ],
+      child: Semantics(
+        label: '$valeur $libelle',
+        excludeSemantics: true,
+        child: Column(
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(valeur,
+                  style: (grand ? texte.headlineMedium : texte.headlineSmall)
+                      ?.copyWith(fontWeight: FontWeight.w800, color: c)),
+            ),
+            Text(libelle, style: texte.bodySmall),
+          ],
+        ),
       ),
     );
   }
@@ -406,7 +484,7 @@ class _VenteScreenState extends State<VenteScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.task_alt_rounded,
-                size: 72, color: Colors.green.shade700),
+                size: 72, color: _vert(context)),
             const SizedBox(height: 12),
             Text('Lot terminé', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 6),
