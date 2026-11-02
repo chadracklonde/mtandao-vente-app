@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../format.dart';
 import '../models.dart';
 import '../state.dart';
+import '../widgets/dialogues.dart';
 import 'import_flow.dart';
 import 'saisie_manuelle.dart';
 
@@ -229,24 +230,11 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
   Future<void> _renommer() async {
     final lot = _lot;
     if (lot == null) return;
-    final ctrl = TextEditingController(text: lot.nom);
-    final nom = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Renommer le lot'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text('Enregistrer')),
-        ],
-      ),
+    final nom = await demanderTexte(
+      context,
+      titre: 'Renommer le lot',
+      libelle: 'Nom du lot',
+      initial: lot.nom,
     );
     if (nom == null || nom.isEmpty) return;
     await appState.repo.renommerLot(lot.id, nom);

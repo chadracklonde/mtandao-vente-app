@@ -93,35 +93,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _modifierLien() async {
-    final ctrl = TextEditingController(text: _loginUrl);
-    final v = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Lien de connexion'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-                'Adresse envoyée aux clients quand vous partagez un ticket (pour les PDF qui n\'en contiennent pas).'),
-            const SizedBox(height: 10),
-            TextField(
-              controller: ctrl,
-              keyboardType: TextInputType.url,
-              autocorrect: false,
-              enableSuggestions: false,
-              decoration: const InputDecoration(border: OutlineInputBorder()),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
-              child: const Text('Enregistrer')),
-        ],
-      ),
+    final v = await demanderTexte(
+      context,
+      titre: 'Lien de connexion',
+      libelle: 'Adresse',
+      initial: _loginUrl,
+      aide:
+          'Adresse envoyée aux clients quand vous partagez un ticket (pour les PDF qui n\'en contiennent pas).',
+      clavier: TextInputType.url,
     );
     if (v == null || v.isEmpty) return;
     await appState.repo.setSetting('login_url', v);
@@ -694,7 +673,7 @@ class _DialogueForfaitState extends State<_DialogueForfait> {
         FilledButton(
           onPressed: valide
               ? () => Navigator.pop(
-                  context, _ChampsForfait(_nom.text.trim(), _minutes, prix!))
+                  context, _ChampsForfait(_nom.text.trim(), _minutes, prix))
               : null,
           child: const Text('Enregistrer'),
         ),

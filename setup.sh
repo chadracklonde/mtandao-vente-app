@@ -31,6 +31,11 @@ if ! grep -q "android.permission.INTERNET" "$manifest"; then
   sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$manifest"
 fi
 
+echo "→ Pas de copie automatique d'Android vers le cloud (la base contient ventes et PIN)…"
+if ! grep -q "android:allowBackup" "$manifest"; then
+  sed -i 's#<application#<application android:allowBackup="false"#' "$manifest"
+fi
+
 echo "→ Signature de l'APK (clé personnelle, voir README)…"
 python3 tool/configurer_signature.py
 

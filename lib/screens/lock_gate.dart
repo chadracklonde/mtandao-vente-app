@@ -23,8 +23,6 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
   String _premierPin = '';
   bool _erreur = false;
   String? _message;
-  int _echecs = 0;
-  DateTime? _bloqueJusqua;
   DateTime? _pauseLe;
   bool _bioActive = false;
   bool _bioEnCours = false;
@@ -61,7 +59,8 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
     final ok = await Biometrie.demander('Déverrouillez Mtandao');
     _bioEnCours = false;
     if (!mounted || !ok || _etat != _Etat.verrouille) return;
-    _echecs = 0;
+    await PinService.reinitialiserEchecs();
+    if (!mounted) return;
     setState(() {
       _etat = _Etat.ouvert;
       _erreur = false;
@@ -124,40 +123,37 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
     }
   }
 
+  /// « 30 s », « 5 min », « 1 h ».
+  static String dureeLisible(int secondes) {
+    if (secondes < 60) return '$secondes s';
+    if (secondes < 3600) return '${(secondes / 60).ceil()} min';
+    return '${(secondes / 3600).ceil()} h';
+  }
+
   Future<void> _surVerification(String pin) async {
-    final bloque = _bloqueJusqua;
-    if (bloque != null && DateTime.now().isBefore(bloque)) {
-      final s = bloque.difference(DateTime.now()).inSeconds + 1;
-      setState(() {
-        _erreur = true;
-        _message = 'Trop d\'essais. Réessayez dans $s s.';
-      });
-      return;
-    }
-    final ok = await PinService.verifier(pin);
+    // Les échecs et les blocages sont enregistrés : rouvrir l'application ne
+    // permet pas de réessayer sans attendre.
+    final r = await PinService.verifierAvecLimite(pin);
     if (!mounted) return;
-    if (ok) {
-      _echecs = 0;
-      setState(() {
-        _etat = _Etat.ouvert;
-        _erreur = false;
-        _message = null;
-      });
-    } else {
-      _echecs++;
-      if (_echecs >= 5) {
-        _echecs = 0;
-        _bloqueJusqua = DateTime.now().add(const Duration(seconds: 30));
+    switch (r.statut) {
+      case StatutPin.correct:
+        setState(() {
+          _etat = _Etat.ouvert;
+          _erreur = false;
+          _message = null;
+        });
+      case StatutPin.bloque:
         setState(() {
           _erreur = true;
-          _message = 'Trop d\'essais. Réessayez dans 30 s.';
+          _message = 'Trop d\'essais. Réessayez dans ${dureeLisible(r.secondes)}.';
         });
-      } else {
+      case StatutPin.incorrect:
         setState(() {
           _erreur = true;
-          _message = 'Code incorrect.';
+          _message = r.essaisRestants <= 2
+              ? 'Code incorrect. Encore ${r.essaisRestants} essai${r.essaisRestants > 1 ? 's' : ''} avant un blocage.'
+              : 'Code incorrect.';
         });
-      }
     }
   }
 

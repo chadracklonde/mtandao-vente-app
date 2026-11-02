@@ -8,6 +8,7 @@ import '../format.dart';
 import '../models.dart';
 import '../pdf_import.dart';
 import '../state.dart';
+import 'saisie_manuelle.dart';
 
 /// Importation d'un PDF de tickets : choix du fichier, lecture, corrections
 /// éventuelles, choix du forfait, création du lot.
@@ -56,18 +57,27 @@ class ImportFlow {
 
     if (erreur != null || lu == null) {
       if (!context.mounted) return;
-      await showDialog<void>(
+      final saisie = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           icon: const Icon(Icons.error_outline_rounded),
           title: const Text('Import impossible'),
-          content: Text(erreur ?? 'Erreur inconnue.'),
+          content: Text(
+              '${erreur ?? 'Erreur inconnue.'}\n\nVous pouvez aussi saisir ou coller les codes à la main.'),
           actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Saisir les codes')),
             FilledButton(
-                onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('OK')),
           ],
         ),
       );
+      if (saisie == true && context.mounted) {
+        await Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const SaisieManuelleScreen()));
+      }
       return;
     }
 
@@ -144,7 +154,7 @@ class ImportFlow {
       final actif = appState.lotActifId;
       var changer = actif == null;
       if (!changer) {
-        final lot = await repo.lot(actif!);
+        final lot = await repo.lot(actif);
         changer = lot == null || lot.restants == 0;
       }
       if (changer) await appState.definirLotActif(resultat.lotId);
