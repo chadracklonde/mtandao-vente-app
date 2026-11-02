@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../backup.dart';
@@ -23,6 +24,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   DateTime? _derniereSauvegarde;
   bool _bioDispo = false;
   bool _bioActive = false;
+  bool _chargee = false;
+
+  /// Données jamais sauvegardées, ou sauvegarde de plus de 7 jours.
+  bool get _sauvegardeAncienne =>
+      _chargee &&
+      (_derniereSauvegarde == null ||
+          DateTime.now().difference(_derniereSauvegarde!).inDays >= 7);
 
   @override
   void initState() {
@@ -38,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final bioActive = await Biometrie.active();
     if (!mounted) return;
     setState(() {
+      _chargee = true;
       _bioDispo = bioDispo;
       _bioActive = bioActive;
       if (url != null && url.isNotEmpty) _loginUrl = url;
@@ -68,6 +77,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             TextField(
               controller: ctrl,
               keyboardType: TextInputType.url,
+              autocorrect: false,
+              enableSuggestions: false,
               decoration: const InputDecoration(border: OutlineInputBorder()),
             ),
           ],
@@ -167,6 +178,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             leading: const Icon(Icons.link_rounded),
             title: const Text('Lien de connexion'),
             subtitle: Text(_loginUrl),
+            trailing: const Icon(Icons.edit_outlined),
             onTap: _modifierLien,
           ),
           const _Entete('Sécurité'),
@@ -199,11 +211,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
           const _Entete('Données'),
           ListTile(
-            leading: const Icon(Icons.cloud_upload_outlined),
+            leading: Icon(
+              _sauvegardeAncienne
+                  ? Icons.warning_amber_rounded
+                  : Icons.cloud_upload_outlined,
+              color: _sauvegardeAncienne
+                  ? Theme.of(context).colorScheme.error
+                  : null,
+            ),
             title: const Text('Sauvegarder mes données'),
-            subtitle: Text(_derniereSauvegarde == null
-                ? 'Jamais sauvegardé. Envoyez le fichier sur WhatsApp, Drive ou e-mail.'
-                : 'Dernière sauvegarde : ${fmtJourCourt(_derniereSauvegarde!)} à ${fmtHeure(_derniereSauvegarde!)}'),
+            subtitle: Text(
+              _derniereSauvegarde == null
+                  ? 'Jamais sauvegardé. Envoyez le fichier sur WhatsApp, Drive ou e-mail.'
+                  : 'Dernière sauvegarde : ${fmtJourCourt(_derniereSauvegarde!)} à ${fmtHeure(_derniereSauvegarde!)}'
+                      '${_sauvegardeAncienne ? '\nPensez à sauvegarder à nouveau.' : ''}',
+              style: _sauvegardeAncienne
+                  ? TextStyle(color: Theme.of(context).colorScheme.error)
+                  : null,
+            ),
             onTap: _sauvegarder,
           ),
           ListTile(
@@ -231,12 +256,15 @@ class _Entete extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
-      child: Text(texte,
-          style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: Theme.of(context).colorScheme.primary,
-              fontWeight: FontWeight.w700)),
+    return Semantics(
+      header: true,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+        child: Text(texte,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: Theme.of(context).colorScheme.primary,
+                fontWeight: FontWeight.w700)),
+      ),
     );
   }
 }
@@ -304,14 +332,21 @@ class _ForfaitsScreenState extends State<ForfaitsScreen> {
               title: Text(f.nom,
                   style: TextStyle(
                       decoration: f.actif ? null : TextDecoration.lineThrough)),
-              subtitle: Text('${libelleDuree(f.dureeMinutes)}  ·  ${cdf(f.prix)}'),
+              subtitle: Text(
+                  '${libelleDuree(f.dureeMinutes)}  ·  ${cdf(f.prix)}'
+                  '${f.actif ? '' : '  ·  désactivé'}'),
               onTap: () => _editer(f),
-              trailing: Switch(
-                value: f.actif,
-                onChanged: (v) async {
-                  await appState.repo.modifierForfait(f.id, actif: v);
-                  _charger();
-                },
+              trailing: Semantics(
+                label: f.actif
+                    ? 'Forfait ${f.nom} activé'
+                    : 'Forfait ${f.nom} désactivé',
+                child: Switch(
+                  value: f.actif,
+                  onChanged: (v) async {
+                    await appState.repo.modifierForfait(f.id, actif: v);
+                    _charger();
+                  },
+                ),
               ),
             ),
         ],
@@ -407,6 +442,7 @@ class _DialogueForfaitState extends State<_DialogueForfait> {
             TextField(
               controller: _prix,
               keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                   labelText: 'Prix (CDF)', border: OutlineInputBorder()),
