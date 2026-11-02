@@ -54,12 +54,24 @@ class _LotsScreenState extends State<LotsScreen> {
       body: _chargement
           ? const Center(child: CircularProgressIndicator())
           : _lots.isEmpty
-              ? const Center(
+              ? Center(
                   child: Padding(
-                    padding: EdgeInsets.all(32),
-                    child: Text(
-                      'Aucun lot pour le moment.\nImportez un PDF de tickets pour commencer.',
-                      textAlign: TextAlign.center,
+                    padding: const EdgeInsets.all(32),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.confirmation_number_outlined,
+                            size: 64,
+                            color: Theme.of(context).colorScheme.outline),
+                        const SizedBox(height: 12),
+                        Text('Aucun lot pour le moment',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Importez un PDF de tickets pour commencer.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
                   ),
                 )
@@ -123,14 +135,23 @@ class _LotsScreenState extends State<LotsScreen> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  minHeight: 6,
+                  minHeight: 8,
                   value: lot.total == 0 ? 0 : lot.vendus / lot.total,
+                  semanticsLabel: 'Progression du lot',
+                  semanticsValue: '${lot.vendus} tickets vendus sur ${lot.total}',
                 ),
               ),
               const SizedBox(height: 8),
-              Text(
-                '${lot.vendus} vendus sur ${lot.total}  ·  ${lot.restants} restants  ·  ${cdf(lot.montant)}',
-              ),
+              Text.rich(TextSpan(children: [
+                TextSpan(
+                  text: '${lot.restants} restants',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                TextSpan(
+                  text:
+                      '  ·  ${lot.vendus} vendus sur ${lot.total}  ·  ${cdf(lot.montant)}',
+                ),
+              ])),
             ],
           ),
         ),
@@ -138,6 +159,12 @@ class _LotsScreenState extends State<LotsScreen> {
     );
   }
 }
+
+/// Vert lisible sur fond clair comme sur fond sombre.
+Color _vert(BuildContext context) =>
+    Theme.of(context).brightness == Brightness.dark
+        ? Colors.green.shade300
+        : Colors.green.shade800;
 
 enum _Filtre { tous, restants, vendus }
 
@@ -314,7 +341,9 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
     final liste = _tickets.where((t) {
       if (_filtre == _Filtre.restants && t.vendu) return false;
       if (_filtre == _Filtre.vendus && !t.vendu) return false;
-      if (q.isNotEmpty && !t.code.contains(q)) return false;
+      if (q.isNotEmpty && !t.code.toLowerCase().contains(q.toLowerCase())) {
+        return false;
+      }
       return true;
     }).toList();
     final cs = Theme.of(context).colorScheme;
@@ -334,6 +363,8 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52)),
                   onPressed: lot.restants == 0
                       ? null
                       : () async {
@@ -347,6 +378,9 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
               const SizedBox(height: 10),
               TextField(
                 keyboardType: TextInputType.text,
+                textInputAction: TextInputAction.search,
+                autocorrect: false,
+                enableSuggestions: false,
                 decoration: const InputDecoration(
                   prefixIcon: Icon(Icons.search_rounded),
                   hintText: 'Chercher un code',
@@ -358,10 +392,15 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
               const SizedBox(height: 8),
               SegmentedButton<_Filtre>(
                 showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: _Filtre.tous, label: Text('Tous')),
-                  ButtonSegment(value: _Filtre.restants, label: Text('Restants')),
-                  ButtonSegment(value: _Filtre.vendus, label: Text('Vendus')),
+                segments: [
+                  ButtonSegment(
+                      value: _Filtre.tous, label: Text('Tous (${lot.total})')),
+                  ButtonSegment(
+                      value: _Filtre.restants,
+                      label: Text('Restants (${lot.restants})')),
+                  ButtonSegment(
+                      value: _Filtre.vendus,
+                      label: Text('Vendus (${lot.vendus})')),
                 ],
                 selected: {_filtre},
                 onSelectionChanged: (s) => setState(() => _filtre = s.first),
@@ -372,7 +411,17 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
         const SizedBox(height: 4),
         Expanded(
           child: liste.isEmpty
-              ? const Center(child: Text('Aucun ticket'))
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      q.isNotEmpty
+                          ? 'Aucun code ne correspond à « $q »'
+                          : 'Aucun ticket dans ce filtre',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                )
               : ListView.separated(
                   itemCount: liste.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
@@ -383,7 +432,8 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
                         t.vendu
                             ? Icons.check_circle_rounded
                             : Icons.radio_button_unchecked_rounded,
-                        color: t.vendu ? Colors.green.shade700 : cs.outline,
+                        color: t.vendu ? _vert(context) : cs.outline,
+                        semanticLabel: t.vendu ? 'Vendu' : 'À vendre',
                       ),
                       title: Text(t.code,
                           style: const TextStyle(
