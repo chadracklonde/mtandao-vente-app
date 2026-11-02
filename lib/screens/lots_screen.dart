@@ -392,7 +392,7 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
               const SizedBox(height: 8),
               SegmentedButton<_Filtre>(
                 showSelectedIcon: false,
-                segments: const [
+                segments: [
                   ButtonSegment(
                       value: _Filtre.tous, label: Text('Tous (${lot.total})')),
                   ButtonSegment(
