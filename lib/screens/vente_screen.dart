@@ -257,18 +257,24 @@ class _VenteScreenState extends State<VenteScreen> {
           child: Column(
             children: [
               if (lotsChoix.length > 1)
-                DropdownButton<int>(
-                  value: lot.id,
-                  isDense: true,
-                  underline: const SizedBox.shrink(),
-                  items: [
-                    for (final l in lotsChoix)
-                      DropdownMenuItem(
-                        value: l.id,
-                        child: Text('${l.nom}  ·  ${l.restants} restants'),
-                      ),
-                  ],
-                  onChanged: _changerLot,
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 48),
+                  child: DropdownButton<int>(
+                    value: lot.id,
+                    isExpanded: true,
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      for (final l in lotsChoix)
+                        DropdownMenuItem(
+                          value: l.id,
+                          child: Text(
+                            '${l.nom}  ·  ${l.restants} restants',
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                    onChanged: _changerLot,
+                  ),
                 )
               else
                 Text(lot.nom,
@@ -278,17 +284,20 @@ class _VenteScreenState extends State<VenteScreen> {
               Row(
                 children: [
                   _stat(context, '${stats.vendus}', 'déjà vendus', cs.primary),
-                  _stat(context, '${stats.restants}', 'restants', cs.onSurface),
-                  _stat(context, cdf(stats.montant), 'encaissé',
-                      Colors.green.shade700),
+                  _stat(context, '${stats.restants}', 'restants', cs.onSurface,
+                      grand: true),
+                  _stat(context, cdf(stats.montant), 'encaissé', _vert(context)),
                 ],
               ),
               const SizedBox(height: 8),
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
-                  minHeight: 6,
+                  minHeight: 8,
                   value: stats.total == 0 ? 0 : stats.vendus / stats.total,
+                  semanticsLabel: 'Progression du lot',
+                  semanticsValue:
+                      '${stats.vendus} tickets vendus sur ${stats.total}',
                 ),
               ),
               if (_dernier != null)
@@ -332,11 +341,11 @@ class _VenteScreenState extends State<VenteScreen> {
                 children: [
                   SizedBox(
                     width: double.infinity,
-                    height: 68,
+                    height: 72,
                     child: FilledButton.icon(
                       onPressed: _vendre,
                       style: FilledButton.styleFrom(
-                        backgroundColor: Colors.green.shade700,
+                        backgroundColor: Colors.green.shade800,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16)),
@@ -356,7 +365,7 @@ class _VenteScreenState extends State<VenteScreen> {
                               _dernier == null ? null : () => _annuler(),
                           style: OutlinedButton.styleFrom(
                               foregroundColor: cs.error,
-                              minimumSize: const Size.fromHeight(46)),
+                              minimumSize: const Size.fromHeight(52)),
                           icon: const Icon(Icons.undo_rounded),
                           label: const Text('Annuler'),
                         ),
@@ -366,7 +375,7 @@ class _VenteScreenState extends State<VenteScreen> {
                         child: OutlinedButton.icon(
                           onPressed: _partager,
                           style: OutlinedButton.styleFrom(
-                              minimumSize: const Size.fromHeight(46)),
+                              minimumSize: const Size.fromHeight(52)),
                           icon: const Icon(Icons.share_rounded),
                           label: const Text('Partager'),
                         ),
@@ -381,18 +390,30 @@ class _VenteScreenState extends State<VenteScreen> {
     );
   }
 
-  Widget _stat(BuildContext context, String valeur, String libelle, Color c) {
+  /// Vert lisible sur fond clair comme sur fond sombre.
+  Color _vert(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark
+          ? Colors.green.shade300
+          : Colors.green.shade800;
+
+  Widget _stat(BuildContext context, String valeur, String libelle, Color c,
+      {bool grand = false}) {
+    final texte = Theme.of(context).textTheme;
     return Expanded(
-      child: Column(
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(valeur,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800, color: c)),
-          ),
-          Text(libelle, style: Theme.of(context).textTheme.bodySmall),
-        ],
+      child: Semantics(
+        label: '$valeur $libelle',
+        excludeSemantics: true,
+        child: Column(
+          children: [
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(valeur,
+                  style: (grand ? texte.headlineMedium : texte.headlineSmall)
+                      ?.copyWith(fontWeight: FontWeight.w800, color: c)),
+            ),
+            Text(libelle, style: texte.bodySmall),
+          ],
+        ),
       ),
     );
   }
@@ -406,7 +427,7 @@ class _VenteScreenState extends State<VenteScreen> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.task_alt_rounded,
-                size: 72, color: Colors.green.shade700),
+                size: 72, color: _vert(context)),
             const SizedBox(height: 12),
             Text('Lot terminé', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 6),
