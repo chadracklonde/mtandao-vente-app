@@ -19,7 +19,7 @@ class BackupException implements Exception {
 /// Sauvegarde / restauration des données dans un seul fichier « .mtandao »
 /// (JSON compressé). Le code PIN n'est jamais inclus.
 class Sauvegarde {
-  static const int version = 1;
+  static const int version = 2;
   static const String extension = 'mtandao';
 
   // Réglages exclus de la sauvegarde (PIN, lot actif, état de la sauvegarde
@@ -28,26 +28,12 @@ class Sauvegarde {
       cle.startsWith('pin_') ||
       cle.startsWith('drive_') ||
       cle == 'lot_actif' ||
+      cle == 'vendeur_actif' ||
       cle == 'derniere_sauvegarde';
 
   /// Crée le fichier de sauvegarde dans le dossier temporaire et le retourne.
   static Future<File> exporter(Repo repo) async {
-    final db = repo.db;
-    final reglages = await db.query('settings');
-    final donnees = <String, Object?>{
-      'app': 'mtandao',
-      'version': version,
-      'exporte_le': DateTime.now().millisecondsSinceEpoch,
-      'forfaits': await db.query('forfaits'),
-      'lots': await db.query('lots'),
-      'tickets': await db.query('tickets'),
-      'images': await db.query('ticket_images'),
-      'settings': {
-        for (final r in reglages)
-          if (!estExclu(r['cle'] as String)) r['cle'] as String: r['valeur'],
-      },
-    };
-    final octets = await compute(_encoder, donnees);
+    final octets = await contenu(repo);
     final dossier = await getTemporaryDirectory();
     final d = DateTime.now();
     String deux(int n) => n.toString().padLeft(2, '0');
@@ -57,6 +43,37 @@ class Sauvegarde {
     await fichier.writeAsBytes(octets, flush: true);
     return fichier;
   }
+
+  /// Contenu (JSON compressé) d'une sauvegarde de toutes les données.
+  static Future<Uint8List> contenu(Repo repo) async {
+    final db = repo.db;
+    final reglages = await db.query('settings');
+    final donnees = <String, Object?>{
+      'app': 'mtandao',
+      'version': version,
+      'exporte_le': DateTime.now().millisecondsSinceEpoch,
+      'forfaits': await db.query('forfaits'),
+      'clients': await db.query('clients'),
+      'vendeurs': await db.query('vendeurs'),
+      'lots': await db.query('lots'),
+      'tickets': await db.query('tickets'),
+      'images': await db.query('ticket_images'),
+      'settings': {
+        for (final r in reglages)
+          if (!estExclu(r['cle'] as String)) r['cle'] as String: r['valeur'],
+      },
+    };
+    return compute(_encoder, donnees);
+  }
+
+  /// Réservé aux tests : lit / écrit le contenu d'un fichier de sauvegarde.
+  @visibleForTesting
+  static Future<Map<String, Object?>> decoderPourTest(Uint8List octets) async =>
+      _decoder(octets);
+
+  @visibleForTesting
+  static Future<Uint8List> encoderPourTest(Map<String, Object?> donnees) async =>
+      _encoder(donnees);
 
   /// Remplace toutes les données par celles du fichier. Le PIN est conservé.
   static Future<void> restaurer(Repo repo, Uint8List octets) async {
@@ -78,10 +95,15 @@ class Sauvegarde {
           'Cette sauvegarde vient d\'une version plus récente de l\'application. Mettez Mtandao à jour.');
     }
 
+    // Les sauvegardes de la version 1 n'ont ni clients ni vendeurs.
     List<Map<String, Object?>> liste(String cle) =>
-        (d[cle] as List).map((e) => Map<String, Object?>.from(e as Map)).toList();
+        ((d[cle] as List?) ?? const [])
+            .map((e) => Map<String, Object?>.from(e as Map))
+            .toList();
 
     final forfaits = liste('forfaits');
+    final clients = liste('clients');
+    final vendeurs = liste('vendeurs');
     final lots = liste('lots');
     final tickets = liste('tickets');
     final images = liste('images');
@@ -92,6 +114,8 @@ class Sauvegarde {
       await txn.delete('tickets');
       await txn.delete('lots');
       await txn.delete('forfaits');
+      await txn.delete('clients');
+      await txn.delete('vendeurs');
       // On garde le PIN et la connexion à Google Drive (propres à ce téléphone).
       await txn.delete('settings',
           where: "cle NOT LIKE 'pin\\_%' ESCAPE '\\' "
@@ -100,6 +124,12 @@ class Sauvegarde {
       final b = txn.batch();
       for (final r in forfaits) {
         b.insert('forfaits', r);
+      }
+      for (final r in clients) {
+        b.insert('clients', r);
+      }
+      for (final r in vendeurs) {
+        b.insert('vendeurs', r);
       }
       for (final r in lots) {
         b.insert('lots', r);

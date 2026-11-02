@@ -1,5 +1,31 @@
 import 'dart:typed_data';
 
+/// Modes de paiement d'une vente.
+///  - espèces et mobile money : encaissé tout de suite ;
+///  - crédit : vendu mais pas encore payé (une dette du client) ;
+///  - offert : ticket donné, rien n'est encaissé.
+class Paiement {
+  static const String especes = 'especes';
+  static const String mobile = 'mobile';
+  static const String credit = 'credit';
+  static const String offert = 'offert';
+
+  static const List<String> tous = [especes, mobile, credit, offert];
+
+  static String libelle(String p) {
+    switch (p) {
+      case mobile:
+        return 'Mobile money';
+      case credit:
+        return 'À crédit';
+      case offert:
+        return 'Offert';
+      default:
+        return 'Espèces';
+    }
+  }
+}
+
 class Forfait {
   Forfait({
     required this.id,
@@ -37,6 +63,7 @@ class Lot {
     required this.total,
     required this.vendus,
     required this.montant,
+    this.defectueux = 0,
   });
 
   final int id;
@@ -49,9 +76,14 @@ class Lot {
   final DateTime creeLe;
   final int total;
   final int vendus;
+
+  /// Montant réellement encaissé (hors crédits non payés et tickets offerts).
   final int montant;
 
-  int get restants => total - vendus;
+  /// Tickets non vendus signalés défectueux : ils ne sont plus proposés.
+  final int defectueux;
+
+  int get restants => total - vendus - defectueux;
 
   factory Lot.fromMap(Map<String, Object?> m) => Lot(
         id: m['id'] as int,
@@ -65,6 +97,7 @@ class Lot {
         total: (m['total'] as int?) ?? 0,
         vendus: (m['vendus'] as int?) ?? 0,
         montant: (m['montant'] as int?) ?? 0,
+        defectueux: (m['defectueux'] as int?) ?? 0,
       );
 }
 
@@ -81,6 +114,11 @@ class Ticket {
     required this.forfaitId,
     required this.vendu,
     required this.venduLe,
+    this.defectueux = false,
+    this.paiement = Paiement.especes,
+    this.clientId,
+    this.payeLe,
+    this.vendeurId,
   });
 
   final int id;
@@ -94,6 +132,11 @@ class Ticket {
   final int forfaitId;
   final bool vendu;
   final DateTime? venduLe;
+  final bool defectueux;
+  final String paiement;
+  final int? clientId;
+  final DateTime? payeLe;
+  final int? vendeurId;
 
   /// Vrai si le mot de passe diffère du code (ticket « utilisateur + mot de passe »).
   bool get aMotDePasseDistinct =>
@@ -113,15 +156,74 @@ class Ticket {
         venduLe: m['vendu_le'] == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(m['vendu_le'] as int),
+        defectueux: ((m['defectueux'] as int?) ?? 0) == 1,
+        paiement: (m['paiement'] as String?) ?? Paiement.especes,
+        clientId: m['client_id'] as int?,
+        payeLe: m['paye_le'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(m['paye_le'] as int),
+        vendeurId: m['vendeur_id'] as int?,
       );
 }
 
 class LotStats {
-  const LotStats({required this.total, required this.vendus, required this.montant});
+  const LotStats({
+    required this.total,
+    required this.vendus,
+    required this.montant,
+    this.defectueux = 0,
+  });
   final int total;
   final int vendus;
   final int montant;
-  int get restants => total - vendus;
+  final int defectueux;
+  int get restants => total - vendus - defectueux;
+}
+
+class Client {
+  const Client({required this.id, required this.nom, this.telephone});
+  final int id;
+  final String nom;
+  final String? telephone;
+
+  factory Client.fromMap(Map<String, Object?> m) => Client(
+        id: m['id'] as int,
+        nom: m['nom'] as String,
+        telephone: m['telephone'] as String?,
+      );
+}
+
+class Vendeur {
+  const Vendeur({required this.id, required this.nom, required this.actif});
+  final int id;
+  final String nom;
+  final bool actif;
+
+  factory Vendeur.fromMap(Map<String, Object?> m) => Vendeur(
+        id: m['id'] as int,
+        nom: m['nom'] as String,
+        actif: (m['actif'] as int) == 1,
+      );
+}
+
+/// Un ticket vendu à crédit et pas encore payé.
+class DetteLigne {
+  const DetteLigne({
+    required this.ticketId,
+    required this.code,
+    required this.prix,
+    required this.venduLe,
+    required this.clientId,
+    required this.clientNom,
+    this.clientTelephone,
+  });
+  final int ticketId;
+  final String code;
+  final int prix;
+  final DateTime venduLe;
+  final int clientId;
+  final String clientNom;
+  final String? clientTelephone;
 }
 
 /// Ticket lu dans un PDF, avant insertion en base.
@@ -156,6 +258,10 @@ class VenteLigne {
     required this.venduLe,
     required this.forfaitNom,
     required this.lotNom,
+    this.paiement = Paiement.especes,
+    this.vendeurNom,
+    this.clientNom,
+    this.payeLe,
   });
 
   final String code;
@@ -163,4 +269,20 @@ class VenteLigne {
   final DateTime venduLe;
   final String forfaitNom;
   final String lotNom;
+  final String paiement;
+  final String? vendeurNom;
+  final String? clientNom;
+  final DateTime? payeLe;
+
+  /// Vrai si l'argent est réellement rentré : espèces, mobile money, ou un
+  /// crédit qui a été payé depuis.
+  bool get encaisse =>
+      paiement == Paiement.especes ||
+      paiement == Paiement.mobile ||
+      (paiement == Paiement.credit && payeLe != null);
+
+  /// Vrai si le client doit encore payer ce ticket.
+  bool get aRecevoir => paiement == Paiement.credit && payeLe == null;
+
+  int get montantEncaisse => encaisse ? prix : 0;
 }

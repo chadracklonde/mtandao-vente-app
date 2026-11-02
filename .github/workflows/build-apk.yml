@@ -26,6 +26,9 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Bibliothèque SQLite (tests de la base de données)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libsqlite3-0
+
       - name: Dépendances
         run: flutter pub get
 

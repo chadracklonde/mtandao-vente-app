@@ -144,7 +144,13 @@ class DriveBackup {
       SELECT COUNT(*) AS n,
              COALESCE(SUM(vendu), 0) AS v,
              COALESCE(SUM(vendu_le), 0) AS t,
-             COALESCE(SUM(CASE WHEN vendu = 1 THEN id ELSE 0 END), 0) AS i
+             COALESCE(SUM(CASE WHEN vendu = 1 THEN id ELSE 0 END), 0) AS i,
+             COALESCE(SUM(defectueux), 0) AS d,
+             COALESCE(SUM(paye_le), 0) AS p,
+             COALESCE(SUM(client_id), 0) AS c,
+             COALESCE(SUM(vendeur_id), 0) AS s,
+             COALESCE(SUM(CASE paiement WHEN 'mobile' THEN 1 WHEN 'credit' THEN 2
+                                        WHEN 'offert' THEN 3 ELSE 0 END), 0) AS m
       FROM tickets''');
     final reglages = (await db.query('settings', orderBy: 'cle'))
         .where((r) => !Sauvegarde.estExclu(r['cle'] as String))
@@ -152,6 +158,8 @@ class DriveBackup {
     final texte = jsonEncode([
       await db.query('forfaits', orderBy: 'id'),
       await db.query('lots', orderBy: 'id'),
+      await db.query('clients', orderBy: 'id'),
+      await db.query('vendeurs', orderBy: 'id'),
       tickets,
       reglages,
     ]);
