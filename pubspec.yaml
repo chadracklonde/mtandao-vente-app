@@ -26,6 +26,7 @@ dependencies:
   extension_google_sign_in_as_googleapis_auth: ^3.0.0
   googleapis: ^17.0.0
   workmanager: ^0.10.10
+  pdf: ^3.11.0
 
 dev_dependencies:
   flutter_test:
@@ -45,3 +46,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.png
+    - assets/fonts/Roboto-Regular.ttf
+    - assets/fonts/Roboto-Bold.ttf
