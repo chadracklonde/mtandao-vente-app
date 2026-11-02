@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:pdfrx/pdfrx.dart';
 
+import 'sauvegarde_auto.dart';
 import 'screens/home_shell.dart';
 import 'screens/lock_gate.dart';
 import 'state.dart';
@@ -15,6 +16,7 @@ Future<void> main() async {
   await initializeDateFormatting('fr');
   await pdfrxFlutterInitialize();
   await appState.init();
+  await SauvegardeAuto.initialiser();
   runApp(const MtandaoApp());
 }
 

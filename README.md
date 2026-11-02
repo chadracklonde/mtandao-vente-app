@@ -6,7 +6,7 @@ des rapports par jour, semaine, mois ou période libre.
 
 - Identifiant Android : `cd.mtandao`
 - Langue : français
-- Aucune connexion Internet nécessaire (l'application ne demande pas la permission Internet)
+- Fonctionne sans Internet. La permission Internet ne sert qu'à la sauvegarde automatique Google Drive, facultative (voir plus bas)
 
 ## Ce que fait l'application
 
@@ -21,6 +21,7 @@ des rapports par jour, semaine, mois ou période libre.
 | **Forfaits** | 1 jour = 1 000 CDF au départ. On ajoute 1 h, 1 semaine, 1 mois dans Réglages > Forfaits, chacun avec son prix. |
 | **PIN** | Code à 4 chiffres au lancement et après 1 minute en arrière-plan. Stocké haché, jamais en clair. |
 | **Sauvegarde** | Un fichier `.mtandao` à envoyer sur WhatsApp, Drive ou e-mail. Restauration sur un autre téléphone. Le PIN n'est pas inclus. |
+| **Sauvegarde Google Drive** | Facultative et automatique : toutes les heures (si les données ont changé), dans le dossier « Mtandao Sauvegardes » de votre Drive. Les 10 plus récentes sont gardées. Voir la section ci-dessous. |
 | **Partage d'un ticket** | Envoie code + lien de connexion au client. |
 
 Un code déjà importé n'est jamais ajouté deux fois.
@@ -49,6 +50,46 @@ cd mtandao-vente-app
 ./setup.sh                 # crée le projet Android, les icônes, installe les dépendances
 flutter run                # test sur un téléphone branché
 ```
+
+## Sauvegarde automatique Google Drive
+
+Une fois connectée dans **Réglages**, l'application envoie un fichier `.mtandao` sur votre Google Drive,
+dans le dossier visible **« Mtandao Sauvegardes »** :
+
+- **toutes les heures**, quand il y a du réseau (Wi-Fi ou données mobiles), même application fermée ;
+- **seulement si les données ont changé** depuis la dernière sauvegarde (sinon les 10 fichiers seraient
+  vite remplacés par des copies identiques et l'historique utile disparaîtrait) ;
+- **les 10 plus récents sont gardés**, les autres sont supprimés après chaque envoi réussi. Seuls les fichiers
+  `mtandao_sauvegarde_*.mtandao` créés par l'application sont concernés ;
+- l'application ne demande que l'accès `drive.file` : elle ne voit **que** ses propres fichiers, jamais le reste du Drive ;
+- le code PIN n'est jamais envoyé.
+
+Android peut retarder la tâche d'arrière-plan (économie de batterie, téléphone au repos). Quand l'application est
+ouverte ou reprise et que la dernière tentative date de plus d'une heure, elle sauvegarde aussitôt.
+Pour restaurer : téléchargez le fichier depuis Drive, puis **Réglages > Restaurer une sauvegarde**.
+
+### Configuration (une seule fois)
+
+Google exige que l'application soit déclarée. Il n'y a **aucun secret** à mettre dans le code.
+
+1. Sur [console.cloud.google.com](https://console.cloud.google.com), créez un projet (par exemple « Mtandao »).
+2. **API et services > Bibliothèque** : activez **Google Drive API**.
+3. **API et services > Écran de consentement OAuth** : type *Externe*, nom « Mtandao », votre e-mail.
+   Ajoutez la portée `https://www.googleapis.com/auth/drive.file`.
+   **Passez ensuite l'application en production** (« Publier l'application »). Tant qu'elle reste en mode
+   *Test*, Google coupe l'accès au bout de **7 jours** et les sauvegardes s'arrêtent. La portée `drive.file`
+   n'est pas sensible : aucune vérification Google n'est demandée.
+4. **API et services > Identifiants > Créer des identifiants > ID client OAuth** :
+   - type **Android** : nom du paquet `cd.mtandao`, et l'empreinte **SHA-1** de votre clé de signature :
+     `keytool -list -v -keystore mtandao-release.jks -alias mtandao` (ligne « SHA1 ») ;
+   - type **Application Web** : notez son **ID client** (il ressemble à `123456-abc.apps.googleusercontent.com`).
+5. Dans GitHub : **Settings > Secrets and variables > Actions > onglet Variables > New repository variable** :
+   nom `GOOGLE_SERVER_CLIENT_ID`, valeur : l'ID client **Web** de l'étape 4. (Ce n'est pas un secret.)
+6. Refabriquez l'APK (onglet **Actions > Run workflow**), installez-le, puis **Réglages > Sauvegarde automatique
+   Google Drive > Connecter**.
+
+Fabrication en local : `GOOGLE_SERVER_CLIENT_ID=... ./build_release.sh`.
+Sans cet identifiant, l'APK fonctionne normalement mais la sauvegarde Google Drive est indisponible.
 
 ## Signer l'application avec GitHub
 

@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../sauvegarde_auto.dart';
+import '../state.dart';
 import 'lots_screen.dart';
 import 'rapports_screen.dart';
 import 'settings_screen.dart';
@@ -13,8 +17,28 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(SauvegardeAuto.rattraper(appState.repo));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(SauvegardeAuto.rattraper(appState.repo));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {

@@ -6,8 +6,10 @@ import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../backup.dart';
+import '../drive_backup.dart';
 import '../format.dart';
 import '../models.dart';
+import '../sauvegarde_auto.dart';
 import '../security.dart';
 import '../state.dart';
 import '../widgets/pin_pad.dart';
@@ -25,6 +27,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _bioDispo = false;
   bool _bioActive = false;
   bool _chargee = false;
+
+  // Sauvegarde automatique Google Drive.
+  bool _driveActif = false;
+  bool _driveOccupe = false;
+  String? _driveEmail;
+  DateTime? _driveSucces;
+  String? _driveErreur;
 
   /// Données jamais sauvegardées, ou sauvegarde de plus de 7 jours.
   bool get _sauvegardeAncienne =>
@@ -44,8 +53,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await appState.repo.getSetting('derniere_sauvegarde') ?? '');
     final bioDispo = await Biometrie.disponible();
     final bioActive = await Biometrie.active();
+    final driveActif =
+        await appState.repo.getSetting(DriveBackup.cleActif) == '1';
+    final driveEmail = await appState.repo.getSetting(DriveBackup.cleEmail);
+    final driveSucces = int.tryParse(
+        await appState.repo.getSetting(DriveBackup.cleSucces) ?? '');
+    final driveErreur = await appState.repo.getSetting(DriveBackup.cleErreur);
     if (!mounted) return;
     setState(() {
+      _driveActif = driveActif;
+      _driveEmail = driveEmail;
+      _driveSucces = driveSucces == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(driveSucces);
+      _driveErreur = driveErreur;
       _chargee = true;
       _bioDispo = bioDispo;
       _bioActive = bioActive;
@@ -110,6 +131,79 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       _info('Sauvegarde impossible : $e');
     }
+  }
+
+  Future<void> _connecterDrive() async {
+    if (_driveOccupe) return;
+    if (!DriveBackup.configure) {
+      _info('Google Drive n\'est pas configuré dans cette version (voir le README).');
+      return;
+    }
+    setState(() => _driveOccupe = true);
+    try {
+      final email = await DriveBackup.connecter();
+      await appState.repo.setSetting(DriveBackup.cleActif, '1');
+      await appState.repo.setSetting(DriveBackup.cleEmail, email);
+      await appState.repo.removeSetting(DriveBackup.cleErreur);
+      await SauvegardeAuto.planifier();
+      final r = await DriveBackup.sauvegarder(appState.repo,
+          force: true, interactif: true);
+      _info(r.ok
+          ? 'Google Drive connecté. ${r.message}'
+          : 'Google Drive connecté, mais : ${r.message}');
+    } catch (e) {
+      _info(DriveBackup.messageErreur(e));
+    } finally {
+      if (mounted) setState(() => _driveOccupe = false);
+      await _charger();
+    }
+  }
+
+  Future<void> _sauvegarderDriveMaintenant() async {
+    if (_driveOccupe) return;
+    setState(() => _driveOccupe = true);
+    try {
+      final r = await DriveBackup.sauvegarder(appState.repo,
+          force: true, interactif: true);
+      _info(r.message);
+    } finally {
+      if (mounted) setState(() => _driveOccupe = false);
+      await _charger();
+    }
+  }
+
+  Future<void> _deconnecterDrive() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Déconnecter Google Drive ?'),
+        content: Text(
+            'Les sauvegardes automatiques s\'arrêtent. Les fichiers déjà envoyés restent dans le dossier « ${DriveBackup.dossierNom} » de votre Drive.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Annuler')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Déconnecter')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await SauvegardeAuto.arreter();
+    await DriveBackup.deconnecter();
+    for (final cle in [
+      DriveBackup.cleActif,
+      DriveBackup.cleEmail,
+      DriveBackup.cleEmpreinte,
+      DriveBackup.cleSucces,
+      DriveBackup.cleEssai,
+      DriveBackup.cleErreur,
+    ]) {
+      await appState.repo.removeSetting(cle);
+    }
+    _info('Google Drive déconnecté.');
+    await _charger();
   }
 
   Future<void> _restaurer() async {
@@ -231,6 +325,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             onTap: _sauvegarder,
           ),
+          ..._tuilesDrive(context),
           ListTile(
             leading: const Icon(Icons.settings_backup_restore_rounded),
             title: const Text('Restaurer une sauvegarde'),
@@ -247,6 +342,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ],
       ),
     );
+  }
+}
+
+extension on _SettingsScreenState {
+  List<Widget> _tuilesDrive(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    if (!_driveActif) {
+      return [
+        ListTile(
+          leading: _driveOccupe
+              ? const SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.cloud_sync_outlined),
+          title: const Text('Sauvegarde automatique Google Drive'),
+          subtitle: Text(DriveBackup.configure
+              ? 'Une sauvegarde chaque heure (si les données ont changé), dans le dossier « ${DriveBackup.dossierNom} ». Les ${DriveBackup.garder} plus récentes sont gardées.'
+              : 'Indisponible dans cette version : identifiant Google absent (voir le README).'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: DriveBackup.configure ? _connecterDrive : null,
+        ),
+      ];
+    }
+    final succes = _driveSucces;
+    return [
+      ListTile(
+        leading: Icon(
+          _driveErreur == null
+              ? Icons.cloud_done_outlined
+              : Icons.cloud_off_outlined,
+          color: _driveErreur == null ? null : cs.error,
+        ),
+        title: const Text('Google Drive connecté'),
+        subtitle: Text(
+          [
+            if (_driveEmail != null) _driveEmail!,
+            succes == null
+                ? 'Aucune sauvegarde envoyée pour le moment.'
+                : 'Dernier envoi : ${fmtJourCourt(succes)} à ${fmtHeure(succes)}',
+            'Chaque heure, ${DriveBackup.garder} fichiers gardés dans « ${DriveBackup.dossierNom} ».',
+            if (_driveErreur != null) _driveErreur!,
+          ].join('\n'),
+          style: _driveErreur == null ? null : TextStyle(color: cs.error),
+        ),
+        isThreeLine: true,
+      ),
+      ListTile(
+        leading: _driveOccupe
+            ? const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.cloud_upload_rounded),
+        title: const Text('Sauvegarder maintenant sur Drive'),
+        onTap: _driveOccupe ? null : _sauvegarderDriveMaintenant,
+      ),
+      ListTile(
+        leading: const Icon(Icons.link_off_rounded),
+        title: const Text('Déconnecter Google Drive'),
+        onTap: _driveOccupe ? null : _deconnecterDrive,
+      ),
+    ];
   }
 }
 

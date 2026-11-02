@@ -16,7 +16,13 @@ if [ "${1:-apk}" = "aab" ]; then
   exit 0
 fi
 
-flutter build apk --release
+# Sauvegarde Google Drive : identifiant (public) du client OAuth « Web » (voir le README).
+DEFINES=()
+if [ -n "${GOOGLE_SERVER_CLIENT_ID:-}" ]; then
+  DEFINES+=("--dart-define=GOOGLE_SERVER_CLIENT_ID=${GOOGLE_SERVER_CLIENT_ID}")
+fi
+
+flutter build apk --release ${DEFINES[@]+"${DEFINES[@]}"}
 APK="build/app/outputs/flutter-apk/app-release.apk"
 echo
 echo "APK signé : $APK"
