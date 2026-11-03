@@ -350,15 +350,12 @@ class Repo {
     return r.map(Ticket.fromMap).toList();
   }
 
-  /// Annule la dernière vente, tous forfaits confondus (tous les tickets
-  /// vendus ensemble). Retourne le dernier ticket vendu, ou null.
+  /// Annule la dernière vente avec les limites du vendeur (voir
+  /// [annulerVenteRecente]). Retourne le dernier ticket remis en vente, ou
+  /// null si l'annulation est refusée.
   Future<Ticket?> annulerDerniereVenteGlobale() async {
-    final dernier = await dernierVenduGlobal();
-    final groupe = await derniereVente();
-    for (final t in groupe) {
-      await remettreEnStock(t.id);
-    }
-    return dernier;
+    final r = await annulerVenteRecente();
+    return r.ok ? r.tickets.last : null;
   }
 
   /// Tickets vendus et argent encaissé entre [debut] (inclus) et [fin]
@@ -557,10 +554,34 @@ class Repo {
     });
   }
 
-  /// Remet un ticket en stock (annule la vente : paiement, client et vendeur
-  /// sont effacés, une dette éventuelle disparaît).
-  Future<void> remettreEnStock(int ticketId) async {
-    await db.update(
+  /// Remet un ticket vendu en stock (annule la vente : paiement, client et
+  /// vendeur sont effacés, une dette éventuelle disparaît). L'annulation est
+  /// comptée sur le ticket et inscrite au journal.
+  ///
+  /// [origine] : 'patron' pour une correction faite avec le code de
+  /// l'application (sans limite) ; 'vendeur' pour le bouton « Annuler » (voir
+  /// [annulerVenteRecente], qui applique les limites).
+  Future<void> remettreEnStock(int ticketId, {String origine = 'patron'}) async {
+    final maintenant = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      final r = await txn.query('tickets',
+          where: 'id = ? AND vendu = 1', whereArgs: [ticketId], limit: 1);
+      if (r.isEmpty) return;
+      await _remettreDans(txn, r.first, origine, maintenant);
+    });
+  }
+
+  Future<void> _remettreDans(Transaction txn, Map<String, Object?> t,
+      String origine, int maintenant) async {
+    await txn.insert('annulations', {
+      'ticket_id': t['id'],
+      'code': t['code'],
+      'vendu_le': t['vendu_le'],
+      'annule_le': maintenant,
+      'vendeur_id': t['vendeur_id'],
+      'origine': origine,
+    });
+    await txn.update(
         'tickets',
         {
           'vendu': 0,
@@ -572,9 +593,72 @@ class Repo {
           'devise': Devise.cdf,
           'taux': null,
           'montant_devise': null,
+          'annulations': ((t['annulations'] as int?) ?? 0) + 1,
         },
         where: 'id = ?',
-        whereArgs: [ticketId]);
+        whereArgs: [t['id']]);
+  }
+
+  /// Durée pendant laquelle la dernière vente peut être annulée par le vendeur.
+  static const Duration fenetreAnnulation = Duration(minutes: 10);
+
+  /// Pourquoi le vendeur ne peut pas annuler maintenant, ou null s'il le peut.
+  ///
+  /// Règles : seule la dernière vente (tous ses tickets) ; dans les 10 minutes ;
+  /// jamais un ticket déjà annulé une fois ; et seulement une vente faite
+  /// après la dernière annulation (on ne peut pas remonter dans l'historique).
+  Future<RefusAnnulation?> refusAnnulation({DateTime? maintenant}) async {
+    final groupe = await derniereVente();
+    if (groupe.isEmpty) return RefusAnnulation.aucuneVente;
+    if (groupe.any((t) => t.annulations > 0)) return RefusAnnulation.dejaAnnulee;
+    final venduLe = groupe.first.venduLe!;
+    final r = await db.rawQuery(
+        "SELECT MAX(annule_le) AS dernier FROM annulations WHERE origine = 'vendeur'");
+    final dernier = r.first['dernier'] as int?;
+    if (dernier != null && venduLe.millisecondsSinceEpoch <= dernier) {
+      return RefusAnnulation.ventePrecedente;
+    }
+    if ((maintenant ?? DateTime.now()).difference(venduLe) > fenetreAnnulation) {
+      return RefusAnnulation.tropAncienne;
+    }
+    return null;
+  }
+
+  /// Annule la dernière vente pour le vendeur, si les règles de
+  /// [refusAnnulation] le permettent.
+  Future<ResultatAnnulation> annulerVenteRecente({DateTime? maintenant}) async {
+    final refus = await refusAnnulation(maintenant: maintenant);
+    if (refus != null) return ResultatAnnulation.refusee(refus);
+    final groupe = await derniereVente();
+    final heure = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      for (final t in groupe) {
+        final r = await txn.query('tickets',
+            where: 'id = ? AND vendu = 1', whereArgs: [t.id], limit: 1);
+        if (r.isNotEmpty) await _remettreDans(txn, r.first, 'vendeur', heure);
+      }
+    });
+    return ResultatAnnulation.reussie(groupe);
+  }
+
+  /// Journal des annulations, les plus récentes d'abord.
+  Future<List<AnnulationLigne>> journalAnnulations({int limite = 200}) async {
+    final r = await db.rawQuery('''
+      SELECT a.*, v.nom AS vendeur_nom FROM annulations a
+      LEFT JOIN vendeurs v ON v.id = a.vendeur_id
+      ORDER BY a.annule_le DESC, a.id DESC LIMIT ?''', [limite]);
+    return [
+      for (final m in r)
+        AnnulationLigne(
+          code: m['code'] as String,
+          venduLe: m['vendu_le'] == null
+              ? null
+              : DateTime.fromMillisecondsSinceEpoch(m['vendu_le'] as int),
+          annuleLe: DateTime.fromMillisecondsSinceEpoch(m['annule_le'] as int),
+          origine: m['origine'] as String,
+          vendeurNom: m['vendeur_nom'] as String?,
+        ),
+    ];
   }
 
   /// Signale un ticket non vendu comme défectueux : il n'est plus proposé et

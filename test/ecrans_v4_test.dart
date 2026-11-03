@@ -121,4 +121,30 @@ void main() {
     await afficher(t, const DettesScreen());
     expect(find.textContaining('En retard : 12 jours'), findsOneWidget);
   });
+
+  testWidgets('recherche : annuler une vente demande le code du patron', (t) async {
+    await t.runAsync(() async {
+      await repo.setSetting('pin_sel', 'x');
+      await repo.setSetting('pin_hash', 'x'); // un code existe : la correction le demande
+    });
+    await afficher(t, const HistoriqueScreen());
+    await t.tap(find.text('K2'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Annuler cette vente'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Oui, annuler'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    // Le clavier du code apparaît ; on annule sans le saisir.
+    expect(find.text('Code du patron'), findsOneWidget);
+    await t.tap(find.text('Annuler'));
+    await t.pumpAndSettle();
+    final k2 = (await t.runAsync(() => repo.rechercher('K2')))!.single.ticket;
+    expect(k2.vendu, isTrue);
+    expect(k2.annulations, 0);
+    await t.runAsync(() async {
+      await repo.removeSetting('pin_sel');
+      await repo.removeSetting('pin_hash');
+    });
+  });
 }

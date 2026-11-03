@@ -10,8 +10,9 @@ import 'package:sqflite/sqflite.dart';
 ///  2. tickets défectueux, mode de paiement, clients (dettes), vendeurs.
 ///  3. paiement en dollars (devise, taux, montant reçu), code PIN des vendeurs.
 ///  4. suivi d'utilisation des tickets (Excel), clôtures de caisse.
+///  5. journal des annulations (une seule annulation par ticket côté vendeur).
 class AppDb {
-  static const int version = 4;
+  static const int version = 5;
   static Database? _db;
 
   static Future<Database> open() async {
@@ -58,12 +59,31 @@ class AppDb {
     await _migrerV1versV2(db);
     await _migrerV2versV3(db);
     await _migrerV3versV4(db);
+    await _migrerV4versV5(db);
   }
 
   static Future<void> migrer(Database db, int ancienne, int nouvelle) async {
     if (ancienne < 2) await _migrerV1versV2(db);
     if (ancienne < 3) await _migrerV2versV3(db);
     if (ancienne < 4) await _migrerV3versV4(db);
+    if (ancienne < 5) await _migrerV4versV5(db);
+  }
+
+  /// v5 : n'efface ni ne modifie aucune donnée. Compte les annulations de
+  /// chaque ticket et garde un journal (qui, quand, par le vendeur ou le patron).
+  static Future<void> _migrerV4versV5(Database db) async {
+    await db.execute(
+        'ALTER TABLE tickets ADD COLUMN annulations INTEGER NOT NULL DEFAULT 0');
+    await db.execute('''
+      CREATE TABLE annulations(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ticket_id INTEGER NOT NULL,
+        code TEXT NOT NULL,
+        vendu_le INTEGER,
+        annule_le INTEGER NOT NULL,
+        vendeur_id INTEGER,
+        origine TEXT NOT NULL
+      )''');
   }
 
   /// v4 : n'efface ni ne modifie aucune donnée. Ajoute la date d'utilisation

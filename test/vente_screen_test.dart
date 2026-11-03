@@ -442,4 +442,34 @@ void main() {
     expect(find.widgetWithText(ChoiceChip, 'Jour promo  2'), findsOneWidget);
     expect(find.widgetWithText(ChoiceChip, '1 jour (24 h)  4'), findsOneWidget);
   });
+
+  testWidgets('Annuler : une fois seulement, impossible de remonter à la vente d\'avant', (t) async {
+    await afficher(t);
+    await vendreAuComptoir(t); // T1
+    await t.pump(const Duration(seconds: 5));
+    await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 5)));
+    await vendreAuComptoir(t); // T2
+    await t.pump(const Duration(seconds: 5));
+
+    await t.tap(find.widgetWithText(OutlinedButton, 'Annuler'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    expect(find.textContaining('Une vente ne peut être annulée qu\'une seule fois'), findsOneWidget);
+    await t.tap(find.text('Oui, annuler'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    var ts = (await t.runAsync(() => repo.ticketsDuLot(lotId)))!;
+    expect(ts.map((x) => x.vendu), [true, false, false, false]);
+    await t.pump(const Duration(seconds: 5));
+
+    // Deuxième appui : T1 est plus ancienne que l'annulation, elle reste vendue.
+    await t.tap(find.widgetWithText(OutlinedButton, 'Annuler'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    expect(find.textContaining('Seule la vente qui vient d\'être faite peut être annulée'), findsOneWidget);
+    expect(find.text('Oui, annuler'), findsNothing);
+    ts = (await t.runAsync(() => repo.ticketsDuLot(lotId)))!;
+    expect(ts.first.vendu, isTrue);
+    await t.pump(const Duration(seconds: 8));
+  });
 }

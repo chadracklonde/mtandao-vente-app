@@ -4,6 +4,7 @@ import 'package:share_plus/share_plus.dart';
 import '../format.dart';
 import '../message_ticket.dart';
 import '../models.dart';
+import '../widgets/code_vendeur.dart';
 import '../state.dart';
 
 /// Recherche d'un ticket par son code, ou par le nom / téléphone du client ou
@@ -79,6 +80,8 @@ class _HistoriqueScreenState extends State<HistoriqueScreen> {
                 Text(
                     'Client : ${r.clientNom}${r.clientTelephone == null ? '' : '  ·  ${r.clientTelephone}'}'),
               if (r.vendeurNom != null) Text('Vendeur : ${r.vendeurNom}'),
+              if (t.annulations > 0)
+                Text('Vente annulée ${t.annulations} fois'),
               if (t.utiliseLe != null)
                 Text('Utilisé sur le réseau (${fmtDateHeure(t.utiliseLe!)})'),
               Text('Lot : ${r.lotNom}'),
@@ -148,6 +151,11 @@ class _HistoriqueScreenState extends State<HistoriqueScreen> {
           ),
         );
         if (ok == true) {
+          if (!mounted) return;
+          if (!await demanderCodePatron(context,
+              raison: 'Annuler une vente ici est réservé au patron.')) {
+            return;
+          }
           await repo.remettreEnStock(t.id);
           appState.changed();
         }

@@ -18,7 +18,7 @@ class BackupException implements Exception {
 /// Sauvegarde / restauration des données dans un seul fichier « .mtandao »
 /// (JSON compressé). Le code PIN n'est jamais inclus.
 class Sauvegarde {
-  static const int version = 4;
+  static const int version = 5;
   static const String extension = 'mtandao';
 
   // Réglages exclus de la sauvegarde (PIN, lot actif, état de la sauvegarde
@@ -64,6 +64,7 @@ class Sauvegarde {
       'lots': await db.query('lots'),
       'tickets': await db.query('tickets'),
       'clotures': await db.query('clotures'),
+      'annulations': await db.query('annulations'),
       'images': await db.query('ticket_images'),
       'settings': {
         for (final r in reglages)
@@ -115,6 +116,7 @@ class Sauvegarde {
     final tickets = liste('tickets');
     final images = liste('images');
     final clotures = liste('clotures');
+    final annulations = liste('annulations');
     final reglages = Map<String, Object?>.from(d['settings'] as Map);
 
     await repo.db.transaction((txn) async {
@@ -127,6 +129,7 @@ class Sauvegarde {
 
       await txn.delete('ticket_images');
       await txn.delete('clotures');
+      await txn.delete('annulations');
       await txn.delete('tickets');
       await txn.delete('lots');
       await txn.delete('forfaits');
@@ -165,6 +168,9 @@ class Sauvegarde {
       }
       for (final r in clotures) {
         b.insert('clotures', r);
+      }
+      for (final r in annulations) {
+        b.insert('annulations', r);
       }
       reglages.forEach((cle, valeur) {
         if (estExclu(cle)) return;

@@ -30,8 +30,8 @@ class AideScreen extends StatelessWidget {
     _Etape(
       Icons.undo_rounded,
       'Se tromper ? Annuler',
-      'Juste après une vente, le bouton ANNULER en haut remet le ticket en vente. '
-          'Plus tard, utilisez Annuler (dernière vente) ou corrigez dans Lots.',
+      'Juste après une vente, le bouton ANNULER remet le ticket en vente : seulement la vente qui vient d\'être faite, '
+          'dans les 10 minutes, et une seule fois par ticket. Une vente plus ancienne se corrige avec le code du patron (Lots ou Recherche).',
     ),
     _Etape(
       Icons.account_balance_wallet_outlined,
