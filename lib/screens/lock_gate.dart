@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../security.dart';
+import '../state.dart';
 import '../widgets/pin_pad.dart';
 
 enum _Etat { chargement, creation, confirmation, verrouille, ouvert }
@@ -48,6 +49,7 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
       _bioActive = bio;
       _etat = defini ? _Etat.verrouille : _Etat.creation;
     });
+    if (defini) _oublierVendeurProtege();
     if (bio) _essayerBiometrie();
   }
 
@@ -83,9 +85,17 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
           _erreur = false;
           _message = null;
         });
+        _oublierVendeurProtege();
         _rafraichirBio();
       }
     }
+  }
+
+  /// À chaque verrouillage, un vendeur protégé par un code est « déconnecté » :
+  /// son code sera redemandé pour vendre en son nom.
+  Future<void> _oublierVendeurProtege() async {
+    await appState.repo.oublierVendeurActifProtege();
+    appState.changed();
   }
 
   Future<void> _rafraichirBio() async {
@@ -123,13 +133,6 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
     }
   }
 
-  /// « 30 s », « 5 min », « 1 h ».
-  static String dureeLisible(int secondes) {
-    if (secondes < 60) return '$secondes s';
-    if (secondes < 3600) return '${(secondes / 60).ceil()} min';
-    return '${(secondes / 3600).ceil()} h';
-  }
-
   Future<void> _surVerification(String pin) async {
     // Les échecs et les blocages sont enregistrés : rouvrir l'application ne
     // permet pas de réessayer sans attendre.
@@ -145,7 +148,7 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
       case StatutPin.bloque:
         setState(() {
           _erreur = true;
-          _message = 'Trop d\'essais. Réessayez dans ${dureeLisible(r.secondes)}.';
+          _message = 'Trop d\'essais. Réessayez dans ${PinService.dureeLisible(r.secondes)}.';
         });
       case StatutPin.incorrect:
         setState(() {

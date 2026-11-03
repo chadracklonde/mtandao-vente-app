@@ -48,7 +48,8 @@ void main() {
     await db.delete('clients');
     await db.delete('vendeurs');
     await db.delete('settings',
-        where: "cle IN ('lot_actif','seuil_stock','vendeur_actif','derniere_sauvegarde')");
+        where:
+            "cle IN ('lot_actif','seuil_stock','vendeur_actif','derniere_sauvegarde','taux_dollar') OR cle LIKE 'pin\\_v%' ESCAPE '\\'");
     final forfait = (await repo.forfaits()).first;
     final lot = await repo.importerLot(
       nom: 'Lot du jour',
@@ -207,5 +208,75 @@ void main() {
     expect(find.text('Aucun ticket à vendre'), findsOneWidget);
     expect(find.text('Importer un PDF'), findsOneWidget);
     expect(find.text('Saisir des codes à la main'), findsOneWidget);
+  });
+
+  Future<void> saisir(WidgetTester t, String code) async {
+    for (final c in code.split('')) {
+      await t.tap(find.widgetWithText(TextButton, c));
+      await t.pump();
+    }
+    await attendre(t);
+    await t.pumpAndSettle();
+  }
+
+  testWidgets('vendeur protégé : son code est demandé, un mauvais code est refusé', (t) async {
+    late int anne;
+    await t.runAsync(() async {
+      anne = await repo.ajouterVendeur('Anne');
+      await repo.definirPinVendeur(anne, '1234');
+      await repo.ajouterVendeur('Luc');
+    });
+    await afficher(t);
+    expect(find.text('Choisir le vendeur'), findsOneWidget);
+
+    await t.tap(find.text('Choisir le vendeur'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Anne'));
+    await t.pumpAndSettle();
+    expect(find.text('Code de Anne'), findsOneWidget);
+
+    await saisir(t, '0000');
+    expect(find.textContaining('Code incorrect'), findsOneWidget);
+    expect(await t.runAsync(() => repo.vendeurActifId()), isNull);
+
+    await saisir(t, '1234');
+    expect(find.text('Code de Anne'), findsNothing);
+    expect(await t.runAsync(() => repo.vendeurActifId()), anne);
+    await attendre(t);
+    expect(find.text('Anne'), findsOneWidget); // la pastille affiche le vendeur
+  });
+
+  testWidgets('vendeur sans code : choisi directement', (t) async {
+    late int luc;
+    await t.runAsync(() async {
+      luc = await repo.ajouterVendeur('Luc');
+    });
+    await afficher(t);
+    await t.tap(find.text('Choisir le vendeur'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Luc'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    expect(find.textContaining('Code de'), findsNothing);
+    expect(await t.runAsync(() => repo.vendeurActifId()), luc);
+  });
+
+  testWidgets('vente en dollars : le message donne le montant reçu', (t) async {
+    await t.runAsync(() => repo.setSetting(cleTauxDollar, '2800'));
+    await afficher(t);
+    await t.tap(find.text('VENDU'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    await t.tap(find.text('Dollars (USD)'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Oui, vendu'));
+    await attendre(t);
+    await t.pumpAndSettle();
+
+    final t1 = (await t.runAsync(() => repo.ticketsDuLot(lotId)))!.first;
+    expect(t1.devise, Devise.usd);
+    expect(t1.montantDevise, 36);
+    expect(find.textContaining('reçu 0,36 USD'), findsOneWidget);
+    await t.pump(const Duration(seconds: 5));
   });
 }

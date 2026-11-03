@@ -11,7 +11,7 @@ import 'rapport.dart';
 /// Export des rapports de ventes en CSV (tableur) et en PDF.
 class RapportExport {
   static const String _entetes =
-      'Date;Heure;Code;Forfait;Lot;Prix (CDF);Paiement;Encaissé (CDF);Client;Vendeur';
+      'Date;Heure;Code;Forfait;Lot;Prix (CDF);Paiement;Encaissé (CDF);Devise;Montant reçu en dollars;Client;Vendeur';
 
   /// Un champ de texte pour un tableur : entre guillemets s'il le faut, et
   /// neutralisé s'il commence par un caractère que Excel prendrait pour une
@@ -39,6 +39,10 @@ class RapportExport {
         '${v.prix}',
         champ(Paiement.libelle(v.paiement)),
         '${v.montantEncaisse}',
+        v.devise,
+        v.devise == Devise.usd && v.montantDevise != null
+            ? Devise.formaterDollar(v.montantDevise!).replaceAll(' USD', '')
+            : '',
         champ(v.clientNom),
         champ(v.vendeurNom),
       ].join(';'));
@@ -116,6 +120,11 @@ class RapportExport {
           if (rapport.aRecevoir > 0)
             ['À recevoir (crédits)', cdf(rapport.aRecevoir)],
           if (rapport.offerts > 0) ['Tickets offerts', '${rapport.offerts}'],
+          if (rapport.ventesDollar > 0)
+            [
+              'Dont payé en dollars',
+              '${rapport.ventesDollar} (${Devise.formaterDollar(rapport.dollarsRecus)})'
+            ],
         ]),
         if (rapport.parForfait.isNotEmpty) ...[
           section('Par forfait'),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models.dart';
+import '../security.dart';
 import '../state.dart';
 import '../widgets/dialogues.dart';
 
@@ -50,6 +51,96 @@ class _VendeursScreenState extends State<VendeursScreen> {
     await _charger();
   }
 
+  void _info(String message) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Définit ou change le code personnel d'un vendeur (saisi deux fois).
+  Future<void> _definirCode(Vendeur v) async {
+    final a = await demanderTexte(
+      context,
+      titre: 'Code de ${v.nom}',
+      libelle: 'Code à 4 chiffres',
+      clavier: TextInputType.number,
+      masquer: true,
+    );
+    if (a == null || !mounted) return;
+    if (!RegExp('^\\d{${PinService.longueur}}\$').hasMatch(a)) {
+      _info('Le code doit avoir exactement ${PinService.longueur} chiffres.');
+      return;
+    }
+    final b = await demanderTexte(
+      context,
+      titre: 'Confirmez le code',
+      libelle: 'Saisissez le code à nouveau',
+      clavier: TextInputType.number,
+      masquer: true,
+    );
+    if (b == null || !mounted) return;
+    if (b != a) {
+      _info('Les deux codes ne correspondent pas.');
+      return;
+    }
+    await appState.repo.definirPinVendeur(v.id, a);
+    await PinService.reinitialiserEchecsVendeur(v.id);
+    appState.changed();
+    _info('Code de ${v.nom} enregistré.');
+    await _charger();
+  }
+
+  Future<void> _retirerCode(Vendeur v) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Retirer le code ?'),
+        content: Text(
+            '${v.nom} pourra de nouveau vendre en son nom sans code.'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Non')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Retirer')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await appState.repo.definirPinVendeur(v.id, null);
+    await PinService.reinitialiserEchecsVendeur(v.id);
+    appState.changed();
+    await _charger();
+  }
+
+  Future<void> _menuCode(Vendeur v) async {
+    final choix = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.pin_outlined),
+              title: Text(v.aUnCode ? 'Changer le code' : 'Définir un code'),
+              onTap: () => Navigator.pop(ctx, 'definir'),
+            ),
+            if (v.aUnCode)
+              ListTile(
+                leading: const Icon(Icons.lock_open_rounded),
+                title: const Text('Retirer le code'),
+                onTap: () => Navigator.pop(ctx, 'retirer'),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (choix == 'definir') await _definirCode(v);
+    if (choix == 'retirer') await _retirerCode(v);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -67,7 +158,7 @@ class _VendeursScreenState extends State<VendeursScreen> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
                   child: Text(
-                    'Ajoutez les personnes qui vendent. Sur l\'écran de vente, une pastille permet de choisir qui vend ; chaque vente garde son nom et les rapports montrent le total par vendeur.',
+                    'Ajoutez les personnes qui vendent. Sur l\'écran de vente, une pastille permet de choisir qui vend ; chaque vente garde son nom et les rapports montrent le total par vendeur. Un code personnel (4 chiffres) peut être demandé pour vendre au nom d\'un vendeur : il est redemandé à chaque verrouillage de l\'application.',
                   ),
                 ),
                 if (_vendeurs.isEmpty)
@@ -81,21 +172,36 @@ class _VendeursScreenState extends State<VendeursScreen> {
                         style: TextStyle(
                             decoration:
                                 v.actif ? null : TextDecoration.lineThrough)),
-                    subtitle: Text(v.actif ? 'Actif' : 'Désactivé'),
+                    subtitle: Text(
+                        '${v.actif ? 'Actif' : 'Désactivé'}${v.aUnCode ? '  ·  protégé par un code' : ''}'),
                     onTap: () => _editer(v),
-                    trailing: Semantics(
-                      label: v.actif
-                          ? 'Vendeur ${v.nom} actif'
-                          : 'Vendeur ${v.nom} désactivé',
-                      child: Switch(
-                        value: v.actif,
-                        onChanged: (actif) async {
-                          await appState.repo
-                              .modifierVendeur(v.id, actif: actif);
-                          appState.changed();
-                          await _charger();
-                        },
-                      ),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: v.aUnCode
+                              ? 'Changer ou retirer le code de ${v.nom}'
+                              : 'Définir un code pour ${v.nom}',
+                          onPressed: () => _menuCode(v),
+                          icon: Icon(v.aUnCode
+                              ? Icons.lock_rounded
+                              : Icons.lock_open_rounded),
+                        ),
+                        Semantics(
+                          label: v.actif
+                              ? 'Vendeur ${v.nom} actif'
+                              : 'Vendeur ${v.nom} désactivé',
+                          child: Switch(
+                            value: v.actif,
+                            onChanged: (actif) async {
+                              await appState.repo
+                                  .modifierVendeur(v.id, actif: actif);
+                              appState.changed();
+                              await _charger();
+                            },
+                          ),
+                        ),
+                      ],
                     ),
                   ),
               ],

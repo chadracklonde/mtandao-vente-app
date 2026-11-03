@@ -35,7 +35,7 @@ final ValueNotifier<ThemeMode> themeMode = ValueNotifier(ThemeMode.system);
 
 /// État global minimal : accès aux données + lot actif + notification de changement.
 class AppState extends ChangeNotifier {
-  late final Repo repo;
+  late Repo repo;
   int? lotActifId;
 
   Future<void> init() async {

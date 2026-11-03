@@ -23,6 +23,7 @@ Future<Future<ChoixVente?> Function()> _ouvrir(
   WidgetTester tester, {
   List<Client> clients = const [],
   String? vendeurNom,
+  int tauxDollar = 0,
   Future<int> Function(String, String?)? creerClient,
 }) async {
   ChoixVente? resultat;
@@ -38,6 +39,7 @@ Future<Future<ChoixVente?> Function()> _ouvrir(
                 ticket: _ticket(),
                 clients: clients,
                 vendeurNom: vendeurNom,
+                tauxDollar: tauxDollar,
                 creerClient: creerClient ?? (n, t) async => 99,
               );
               termine = true;
@@ -149,5 +151,61 @@ void main() {
     final choix = (await resultat())!;
     expect(choix.paiement, Paiement.credit);
     expect(choix.clientId, 42);
+  });
+
+  group('paiement en dollars', () {
+    testWidgets('sans taux, la monnaie n\'est pas proposée', (tester) async {
+      final resultat = await _ouvrir(tester);
+      await tester.tap(find.text('ouvrir'));
+      await tester.pumpAndSettle();
+      expect(find.text('Monnaie reçue'), findsNothing);
+      await tester.tap(find.text('Oui, vendu'));
+      await tester.pumpAndSettle();
+      final choix = (await resultat())!;
+      expect(choix.devise, Devise.cdf);
+      expect(choix.taux, isNull);
+    });
+
+    testWidgets('avec un taux : le montant à recevoir en dollars et le taux sont retournés', (tester) async {
+      final resultat = await _ouvrir(tester, tauxDollar: 2800);
+      await tester.tap(find.text('ouvrir'));
+      await tester.pumpAndSettle();
+      expect(find.text('Monnaie reçue'), findsOneWidget);
+      expect(find.textContaining('À recevoir :'), findsNothing); // francs par défaut
+
+      await tester.tap(find.text('Dollars (USD)'));
+      await tester.pumpAndSettle();
+      // 1 000 CDF au taux de 2 800 = 0,36 dollar.
+      expect(find.textContaining('À recevoir : 0,36 USD'), findsOneWidget);
+
+      await tester.tap(find.text('Oui, vendu'));
+      await tester.pumpAndSettle();
+      final choix = (await resultat())!;
+      expect(choix.paiement, Paiement.especes);
+      expect(choix.devise, Devise.usd);
+      expect(choix.taux, 2800);
+    });
+
+    testWidgets('le dollar disparaît pour un crédit ou un ticket offert, et revient avec le mobile money', (tester) async {
+      await _ouvrir(tester, tauxDollar: 2800, clients: const [Client(id: 1, nom: 'M')]);
+      await tester.tap(find.text('ouvrir'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Dollars (USD)'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Offert'));
+      await tester.pumpAndSettle();
+      expect(find.text('Monnaie reçue'), findsNothing);
+
+      await tester.tap(find.text('Mobile money'));
+      await tester.pumpAndSettle();
+      // On repasse en francs quand le dollar a été indisponible.
+      expect(find.text('Monnaie reçue'), findsOneWidget);
+      expect(find.textContaining('À recevoir :'), findsNothing);
+
+      await tester.tap(find.text('À crédit'));
+      await tester.pumpAndSettle();
+      expect(find.text('Monnaie reçue'), findsNothing);
+    });
   });
 }

@@ -33,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _chargee = false;
 
   int _seuilStock = seuilStockParDefaut;
+  int _tauxDollar = 0;
 
   // Sauvegarde automatique Google Drive.
   bool _driveActif = false;
@@ -64,6 +65,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final seuil = int.tryParse(
             await appState.repo.getSetting(cleSeuilStock) ?? '') ??
         seuilStockParDefaut;
+    final taux = await appState.repo.tauxDollar();
     final driveActif =
         await appState.repo.getSetting(DriveBackup.cleActif) == '1';
     final driveEmail = await appState.repo.getSetting(DriveBackup.cleEmail);
@@ -79,6 +81,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _driveWifi = driveWifi;
       _driveTaille = driveTaille;
       _seuilStock = seuil;
+      _tauxDollar = taux;
       _driveActif = driveActif;
       _driveEmail = driveEmail;
       _driveSucces = driveSucces == null
@@ -128,6 +131,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       _info('Sauvegarde impossible : $e');
     }
+  }
+
+  Future<void> _modifierTauxDollar() async {
+    final saisi = await demanderTexte(
+      context,
+      titre: 'Paiement en dollars',
+      libelle: 'Francs congolais pour 1 dollar (0 = désactivé)',
+      aide:
+          'Avec un taux, la fenêtre de vente propose de recevoir des dollars. Chaque vente garde le taux du jour : changer le taux plus tard ne modifie pas les ventes passées.',
+      initial: _tauxDollar > 0 ? '$_tauxDollar' : '',
+      clavier: TextInputType.number,
+    );
+    final v = int.tryParse(saisi ?? '');
+    if (v == null || v < 0) return;
+    if (v == 0) {
+      await appState.repo.removeSetting(cleTauxDollar);
+    } else {
+      await appState.repo.setSetting(cleTauxDollar, '$v');
+    }
+    appState.changed();
+    await _charger();
   }
 
   Future<void> _modifierSeuilStock() async {
@@ -290,6 +314,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const ForfaitsScreen())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.attach_money_rounded),
+            title: const Text('Paiement en dollars'),
+            subtitle: Text(_tauxDollar > 0
+                ? '1 dollar = ${cdf(_tauxDollar)}'
+                : 'Désactivé : saisissez le taux pour accepter des dollars'),
+            onTap: _modifierTauxDollar,
           ),
           ListTile(
             leading: const Icon(Icons.inventory_2_outlined),

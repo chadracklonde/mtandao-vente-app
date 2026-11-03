@@ -12,6 +12,7 @@ Future<String?> demanderTexte(
   String? aide,
   TextInputType? clavier,
   TextCapitalization majuscules = TextCapitalization.none,
+  bool masquer = false,
 }) {
   return showDialog<String>(
     context: context,
@@ -22,6 +23,7 @@ Future<String?> demanderTexte(
       aide: aide,
       clavier: clavier,
       majuscules: majuscules,
+      masquer: masquer,
     ),
   );
 }
@@ -34,6 +36,7 @@ class _DialogueTexte extends StatefulWidget {
     required this.aide,
     required this.clavier,
     required this.majuscules,
+    required this.masquer,
   });
   final String titre;
   final String libelle;
@@ -41,6 +44,7 @@ class _DialogueTexte extends StatefulWidget {
   final String? aide;
   final TextInputType? clavier;
   final TextCapitalization majuscules;
+  final bool masquer;
 
   @override
   State<_DialogueTexte> createState() => _DialogueTexteState();
@@ -73,6 +77,9 @@ class _DialogueTexteState extends State<_DialogueTexte> {
             autofocus: true,
             keyboardType: widget.clavier,
             textCapitalization: widget.majuscules,
+            obscureText: widget.masquer,
+            enableSuggestions: !widget.masquer,
+            autocorrect: !widget.masquer,
             decoration: InputDecoration(
                 labelText: widget.libelle, border: const OutlineInputBorder()),
             onSubmitted: (v) => Navigator.pop(context, v.trim()),

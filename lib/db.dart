@@ -8,8 +8,9 @@ import 'package:sqflite/sqflite.dart';
 /// Versions du schéma :
 ///  1. forfaits, lots, tickets, images, réglages.
 ///  2. tickets défectueux, mode de paiement, clients (dettes), vendeurs.
+///  3. paiement en dollars (devise, taux, montant reçu), code PIN des vendeurs.
 class AppDb {
-  static const int version = 2;
+  static const int version = 3;
   static Database? _db;
 
   static Future<Database> open() async {
@@ -54,10 +55,25 @@ class AppDb {
   static Future<void> creer(Database db, int version) async {
     await _creerV1(db);
     await _migrerV1versV2(db);
+    await _migrerV2versV3(db);
   }
 
   static Future<void> migrer(Database db, int ancienne, int nouvelle) async {
     if (ancienne < 2) await _migrerV1versV2(db);
+    if (ancienne < 3) await _migrerV2versV3(db);
+  }
+
+  /// v3 : n'efface ni ne modifie aucune donnée. Les ventes existantes restent
+  /// des ventes en francs congolais, et aucun vendeur n'a de code.
+  static Future<void> _migrerV2versV3(Database db) async {
+    await db.execute(
+        "ALTER TABLE tickets ADD COLUMN devise TEXT NOT NULL DEFAULT 'CDF'");
+    // Francs congolais pour 1 dollar au moment de la vente, et montant reçu en
+    // centimes de dollar (null pour une vente en francs).
+    await db.execute('ALTER TABLE tickets ADD COLUMN taux INTEGER');
+    await db.execute('ALTER TABLE tickets ADD COLUMN montant_devise INTEGER');
+    await db.execute('ALTER TABLE vendeurs ADD COLUMN pin_sel TEXT');
+    await db.execute('ALTER TABLE vendeurs ADD COLUMN pin_hash TEXT');
   }
 
   /// v2 : n'efface ni ne modifie aucune donnée. Les ventes existantes restent

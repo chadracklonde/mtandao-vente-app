@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:sqflite/sqflite.dart';
 
 import 'models.dart';
+import 'pin_hash.dart';
 
 /// Accès aux données. Toutes les opérations sont locales.
 class Repo {
@@ -278,11 +279,19 @@ class Repo {
   /// est signalé défectueux.
   ///
   /// [paiement] : espèces par défaut. Une vente à crédit exige un [clientId].
+  ///
+  /// [devise] : francs par défaut. Pour un paiement en dollars, [taux] est le
+  /// nombre de francs pour 1 dollar ; le montant reçu en dollars est calculé
+  /// et enregistré avec le taux, pour que les rapports restent justes même si
+  /// le taux change plus tard. Le dollar n'est possible qu'en espèces ou mobile
+  /// money (pas pour un crédit, ni un ticket offert).
   Future<bool> vendre(
     int ticketId, {
     String paiement = Paiement.especes,
     int? clientId,
     int? vendeurId,
+    String devise = Devise.cdf,
+    int? taux,
   }) async {
     if (!Paiement.tous.contains(paiement)) {
       throw ArgumentError('Mode de paiement inconnu : $paiement');
@@ -290,20 +299,41 @@ class Repo {
     if (paiement == Paiement.credit && clientId == null) {
       throw ArgumentError('Une vente à crédit exige un client.');
     }
-    final n = await db.update(
-      'tickets',
-      {
-        'vendu': 1,
-        'vendu_le': DateTime.now().millisecondsSinceEpoch,
-        'paiement': paiement,
-        'client_id': paiement == Paiement.credit ? clientId : null,
-        'paye_le': null,
-        'vendeur_id': vendeurId,
-      },
-      where: 'id = ? AND vendu = 0 AND defectueux = 0',
-      whereArgs: [ticketId],
-    );
-    return n > 0;
+    if (devise != Devise.cdf && devise != Devise.usd) {
+      throw ArgumentError('Devise inconnue : $devise');
+    }
+    if (devise == Devise.usd) {
+      if (taux == null || taux <= 0) {
+        throw ArgumentError('Un paiement en dollars exige un taux.');
+      }
+      if (paiement != Paiement.especes && paiement != Paiement.mobile) {
+        throw ArgumentError('Le dollar est possible en espèces ou mobile money.');
+      }
+    }
+    return db.transaction((txn) async {
+      final r = await txn.query('tickets',
+          columns: ['prix'], where: 'id = ?', whereArgs: [ticketId], limit: 1);
+      if (r.isEmpty) return false;
+      final prix = r.first['prix'] as int;
+      final n = await txn.update(
+        'tickets',
+        {
+          'vendu': 1,
+          'vendu_le': DateTime.now().millisecondsSinceEpoch,
+          'paiement': paiement,
+          'client_id': paiement == Paiement.credit ? clientId : null,
+          'paye_le': null,
+          'vendeur_id': vendeurId,
+          'devise': devise,
+          'taux': devise == Devise.usd ? taux : null,
+          'montant_devise':
+              devise == Devise.usd ? Devise.centimesDollar(prix, taux!) : null,
+        },
+        where: 'id = ? AND vendu = 0 AND defectueux = 0',
+        whereArgs: [ticketId],
+      );
+      return n > 0;
+    });
   }
 
   /// Remet un ticket en stock (annule la vente : paiement, client et vendeur
@@ -318,6 +348,9 @@ class Repo {
           'client_id': null,
           'paye_le': null,
           'vendeur_id': null,
+          'devise': Devise.cdf,
+          'taux': null,
+          'montant_devise': null,
         },
         where: 'id = ?',
         whereArgs: [ticketId]);
@@ -350,6 +383,7 @@ class Repo {
   Future<List<VenteLigne>> ventes(DateTime debut, DateTime finExclue) async {
     final r = await db.rawQuery('''
       SELECT t.code, t.prix, t.vendu_le, t.paiement, t.paye_le,
+             t.devise, t.montant_devise,
              f.nom AS forfait_nom, l.nom AS lot_nom,
              v.nom AS vendeur_nom, c.nom AS client_nom
       FROM tickets t
@@ -373,6 +407,8 @@ class Repo {
               paiement: (m['paiement'] as String?) ?? Paiement.especes,
               vendeurNom: m['vendeur_nom'] as String?,
               clientNom: m['client_nom'] as String?,
+              devise: (m['devise'] as String?) ?? Devise.cdf,
+              montantDevise: m['montant_devise'] as int?,
               payeLe: m['paye_le'] == null
                   ? null
                   : DateTime.fromMillisecondsSinceEpoch(m['paye_le'] as int),
@@ -455,6 +491,50 @@ class Repo {
     if (v.isEmpty) return;
     await db.update('vendeurs', v, where: 'id = ?', whereArgs: [id]);
   }
+
+  /// Définit (ou, avec null, retire) le code personnel d'un vendeur. Le code
+  /// n'est jamais stocké en clair.
+  Future<void> definirPinVendeur(int id, String? pin) async {
+    if (pin == null) {
+      await db.update('vendeurs', {'pin_sel': null, 'pin_hash': null},
+          where: 'id = ?', whereArgs: [id]);
+      return;
+    }
+    final sel = PinHash.nouveauSel();
+    await db.update(
+        'vendeurs', {'pin_sel': sel, 'pin_hash': PinHash.hacher(sel, pin)},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Vrai si [pin] est le code du vendeur. Faux s'il n'en a pas.
+  Future<bool> verifierPinVendeur(int id, String pin) async {
+    final r = await db.query('vendeurs',
+        columns: ['pin_sel', 'pin_hash'],
+        where: 'id = ?',
+        whereArgs: [id],
+        limit: 1);
+    if (r.isEmpty) return false;
+    final sel = r.first['pin_sel'] as String?;
+    final hash = r.first['pin_hash'] as String?;
+    if (sel == null || hash == null) return false;
+    return PinHash.hacher(sel, pin) == hash;
+  }
+
+  /// Si le vendeur actif a un code, on l'oublie (à chaque verrouillage de
+  /// l'application) : il faudra ressaisir son code pour vendre en son nom.
+  Future<void> oublierVendeurActifProtege() async {
+    final id = int.tryParse(await getSetting(cleVendeurActif) ?? '');
+    if (id == null) return;
+    final r = await db.query('vendeurs',
+        columns: ['pin_hash'], where: 'id = ?', whereArgs: [id], limit: 1);
+    if (r.isNotEmpty && r.first['pin_hash'] != null) {
+      await removeSetting(cleVendeurActif);
+    }
+  }
+
+  /// Francs congolais pour 1 dollar, ou 0 si le dollar n'est pas activé.
+  Future<int> tauxDollar() async =>
+      int.tryParse(await getSetting(cleTauxDollar) ?? '') ?? 0;
 
   /// Vendeur choisi sur ce téléphone, ou null (ventes sans vendeur).
   Future<int?> vendeurActifId() async {
