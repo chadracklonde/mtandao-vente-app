@@ -47,9 +47,11 @@ void main() {
     await db.delete('lots');
     await db.delete('clients');
     await db.delete('vendeurs');
+    await db.delete('forfaits', where: 'duree_minutes != 1440');
+    appState.forfaitActifId = null;
     await db.delete('settings',
         where:
-            "cle IN ('lot_actif','seuil_stock','vendeur_actif','derniere_sauvegarde','taux_dollar') OR cle LIKE 'pin\\_v%' ESCAPE '\\'");
+            "cle IN ('lot_actif','seuil_stock','vendeur_actif','derniere_sauvegarde','taux_dollar','forfait_actif') OR cle LIKE 'pin\\_v%' ESCAPE '\\'");
     final forfait = (await repo.forfaits()).first;
     final lot = await repo.importerLot(
       nom: 'Lot du jour',
@@ -160,7 +162,7 @@ void main() {
 
   testWidgets('alerte de stock bas, avec le seuil par défaut (20)', (t) async {
     await afficher(t);
-    expect(find.textContaining('Plus que 4 tickets en stock'), findsOneWidget);
+    expect(find.textContaining('Plus que 4 tickets'), findsOneWidget);
     expect(find.text('Importer'), findsOneWidget);
   });
 
@@ -278,5 +280,166 @@ void main() {
     expect(t1.montantDevise, 36);
     expect(find.textContaining('reçu 0,36 USD'), findsOneWidget);
     await t.pump(const Duration(seconds: 5));
+  });
+
+  // -------------------------------------------------- plusieurs forfaits
+  /// Ajoute un forfait avec un lot de [n] tickets (codes préfixe1, préfixe2…).
+  Future<int> ajouterForfaitAvecLot(WidgetTester t, String nom, int minutes,
+      int prix, String prefixe, int n) async {
+    late int id;
+    await t.runAsync(() async {
+      id = await repo.ajouterForfait(nom, minutes, prix);
+      final f = (await repo.forfaits()).firstWhere((x) => x.id == id);
+      await repo.importerLot(
+        nom: 'Lot $nom',
+        forfait: f,
+        source: 'texte',
+        tickets: [for (var i = 1; i <= n; i++) ParsedTicket(code: '$prefixe$i')],
+      );
+    });
+    return id;
+  }
+
+  testWidgets('un seul forfait : pas de pastilles, l\'écran reste simple', (t) async {
+    await afficher(t);
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.text('Plus de tickets'), findsNothing);
+  });
+
+  testWidgets('plusieurs forfaits : pastilles classées par durée avec le stock', (t) async {
+    await ajouterForfaitAvecLot(t, '1 semaine', 10080, 5000, 'S', 2);
+    await ajouterForfaitAvecLot(t, '1 heure', 60, 500, 'H', 3);
+    await afficher(t);
+
+    expect(find.byType(ChoiceChip), findsNWidgets(3));
+    final heure = t.getTopLeft(find.widgetWithText(ChoiceChip, '1 h  3'));
+    final jour = t.getTopLeft(find.widgetWithText(ChoiceChip, '1 jour  4'));
+    final semaine = t.getTopLeft(find.widgetWithText(ChoiceChip, '1 semaine  2'));
+    // 1 h, puis 1 jour, puis 1 semaine (de gauche à droite).
+    expect(heure.dx < jour.dx && jour.dx < semaine.dx, isTrue);
+    // Le forfait choisi par défaut est le premier qui a du stock : 1 h.
+    expect(find.text('1 HEURE  ·  ${cdf(500)}'), findsOneWidget);
+    expect(find.text('H1'), findsWidgets);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('un appui sur une pastille change de forfait, et le choix est mémorisé', (t) async {
+    final semaine = await ajouterForfaitAvecLot(t, '1 semaine', 10080, 5000, 'S', 2);
+    await afficher(t);
+    expect(find.text('T1'), findsWidgets); // 24 h (1 h n'existe pas ici)
+
+    await t.tap(find.widgetWithText(ChoiceChip, '1 semaine  2'));
+    await attendre(t);
+    await t.pumpAndSettle();
+
+    expect(find.text('1 SEMAINE  ·  ${cdf(5000)}'), findsOneWidget);
+    expect(find.text('S1'), findsWidgets);
+    expect(find.text('T1'), findsNothing);
+    expect(await t.runAsync(() => repo.getSetting('forfait_actif')), '$semaine');
+  });
+
+  testWidgets('la vente touche seulement le forfait affiché, au bon prix', (t) async {
+    await ajouterForfaitAvecLot(t, '1 heure', 60, 500, 'H', 3);
+    await afficher(t);
+    await vendreAuComptoir(t);
+
+    final tout = (await t.runAsync(() => repo.profils()))!;
+    final heure = tout.firstWhere((p) => p.forfait.nom == '1 heure');
+    final jour = tout.firstWhere((p) => p.forfait.dureeMinutes == 1440);
+    expect(heure.vendus, 1);
+    expect(heure.montant, 500);
+    expect(jour.vendus, 0); // le 24 h n'a pas bougé
+    expect(find.textContaining('Ticket H1 vendu'), findsOneWidget);
+    expect(find.text('H2'), findsWidgets);
+    // Total du jour, tous forfaits.
+    expect(find.textContaining('Aujourd\'hui, tous forfaits : 1 ticket'), findsOneWidget);
+    await t.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('le total du jour réunit tous les forfaits', (t) async {
+    await ajouterForfaitAvecLot(t, '1 heure', 60, 500, 'H', 3);
+    await afficher(t);
+    await vendreAuComptoir(t); // 1 h : 500
+    await t.pump(const Duration(seconds: 5));
+    await t.tap(find.widgetWithText(ChoiceChip, '1 jour  4'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    await vendreAuComptoir(t); // 24 h : 1 000
+    expect(find.textContaining('Aujourd\'hui, tous forfaits : 2 tickets  ·  ${cdf(1500)}'),
+        findsOneWidget);
+    await t.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('stock bas : l\'alerte nomme le forfait affiché', (t) async {
+    await ajouterForfaitAvecLot(t, '1 semaine', 10080, 5000, 'S', 2);
+    await afficher(t);
+    await t.tap(find.widgetWithText(ChoiceChip, '1 semaine  2'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    expect(find.textContaining('Plus que 2 tickets « 1 semaine »'), findsOneWidget);
+  });
+
+  testWidgets('forfait épuisé : message clair, on garde la pastille, l\'autre forfait reste vendable', (t) async {
+    await ajouterForfaitAvecLot(t, '1 semaine', 10080, 5000, 'S', 1);
+    await afficher(t);
+    await t.tap(find.widgetWithText(ChoiceChip, '1 semaine  1'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    await vendreAuComptoir(t);
+    await t.pump(const Duration(seconds: 5));
+    await attendre(t);
+
+    expect(find.text('Plus de tickets'), findsOneWidget);
+    expect(find.textContaining('Tous les tickets « 1 semaine » sont vendus'), findsOneWidget);
+    expect(find.text('Choisissez un autre forfait ci-dessus.'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, '1 semaine  0'), findsOneWidget);
+
+    await t.tap(find.widgetWithText(ChoiceChip, '1 jour  4'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    expect(find.text('T1'), findsWidgets);
+    expect(find.text('Plus de tickets'), findsNothing);
+  });
+
+  testWidgets('à l\'ouverture : un forfait sans ticket est remplacé par le premier qui en a', (t) async {
+    final heure = await ajouterForfaitAvecLot(t, '1 heure', 60, 500, 'H', 1);
+    await t.runAsync(() async {
+      final h = (await repo.prochainTicketForfait(heure))!;
+      await repo.vendre(h.id);
+      await appState.definirForfaitActif(heure);
+    });
+    await afficher(t);
+    expect(find.text('T1'), findsWidgets); // on est tombé sur le 24 h
+    expect(find.text('Plus de tickets'), findsNothing);
+  });
+
+  testWidgets('Annuler remet en vente la dernière vente, même d\'un autre forfait', (t) async {
+    await ajouterForfaitAvecLot(t, '1 heure', 60, 500, 'H', 3);
+    await afficher(t);
+    await vendreAuComptoir(t); // vente de H1
+    await t.pump(const Duration(seconds: 5));
+    await t.tap(find.widgetWithText(ChoiceChip, '1 jour  4'));
+    await attendre(t);
+    await t.pumpAndSettle();
+
+    await t.tap(find.widgetWithText(OutlinedButton, 'Annuler'));
+    await attendre(t);
+    await t.pumpAndSettle();
+    expect(find.textContaining('Le ticket H1 (1 h) sera remis en vente'), findsOneWidget);
+    await t.tap(find.text('Oui, annuler'));
+    await attendre(t);
+    await t.pumpAndSettle();
+
+    final h = (await t.runAsync(() => repo.profils()))!.firstWhere((p) => p.forfait.nom == '1 heure');
+    expect(h.vendus, 0);
+    expect(find.textContaining('Ticket H1 (1 h) remis en vente'), findsOneWidget);
+    await t.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('deux forfaits de même durée : les pastilles montrent leur nom', (t) async {
+    await ajouterForfaitAvecLot(t, 'Jour promo', 1440, 800, 'P', 2);
+    await afficher(t);
+    expect(find.widgetWithText(ChoiceChip, 'Jour promo  2'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, '1 jour (24 h)  4'), findsOneWidget);
   });
 }

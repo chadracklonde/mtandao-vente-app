@@ -650,7 +650,12 @@ class _DialogueForfait extends StatefulWidget {
 class _DialogueForfaitState extends State<_DialogueForfait> {
   static const Map<int, String> _durees = {
     60: '1 heure',
+    120: '2 heures',
+    180: '3 heures',
+    360: '6 heures',
+    720: '12 heures',
     1440: '1 jour (24 h)',
+    4320: '3 jours',
     10080: '1 semaine',
     43200: '1 mois',
   };

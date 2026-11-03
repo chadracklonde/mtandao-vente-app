@@ -207,6 +207,29 @@ class Ticket {
       );
 }
 
+/// Un forfait (profil de ticket : 1 h, 24 h, 1 semaine…) avec l'état de son
+/// stock, tous lots confondus. C'est ce que l'écran de vente propose de choisir.
+class ProfilStock {
+  const ProfilStock({
+    required this.forfait,
+    required this.total,
+    required this.vendus,
+    required this.defectueux,
+    required this.montant,
+  });
+  final Forfait forfait;
+
+  /// Tickets importés pour ce forfait, vendus, et signalés défectueux (non vendus).
+  final int total;
+  final int vendus;
+  final int defectueux;
+
+  /// Argent encaissé sur les ventes de ce forfait.
+  final int montant;
+
+  int get restants => total - vendus - defectueux;
+}
+
 class LotStats {
   const LotStats({
     required this.total,
