@@ -571,9 +571,12 @@ class _ForfaitsScreenState extends State<ForfaitsScreen> {
   }
 
   Future<void> _editer([Forfait? f]) async {
+    // Tickets non vendus de ce forfait : le prix peut aussi leur être appliqué.
+    final stock = f == null ? 0 : await appState.repo.stockForfait(f.id);
+    if (!mounted) return;
     final r = await showDialog<_ChampsForfait>(
       context: context,
-      builder: (_) => _DialogueForfait(existant: f),
+      builder: (_) => _DialogueForfait(existant: f, nbStock: stock),
     );
     if (r == null) return;
     if (f == null) {
@@ -581,6 +584,9 @@ class _ForfaitsScreenState extends State<ForfaitsScreen> {
     } else {
       await appState.repo.modifierForfait(f.id,
           nom: r.nom, dureeMinutes: r.minutes, prix: r.prix);
+      if (r.appliquerAuStock && r.prix != f.prix) {
+        await appState.repo.modifierPrixStockForfait(f.id, r.prix);
+      }
     }
     appState.changed();
     _charger();
@@ -601,7 +607,7 @@ class _ForfaitsScreenState extends State<ForfaitsScreen> {
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: Text(
-              'Un nouveau prix s\'applique aux prochains lots importés. Les lots déjà importés gardent leur prix, pour que les rapports restent justes.',
+              'Un nouveau prix s\'applique aux prochains lots importés. Pour les tickets déjà importés mais pas encore vendus, cochez « Appliquer aussi » en modifiant le forfait, ou changez le prix d\'un lot dans Lots. Les ventes passées gardent leur prix : les rapports restent justes.',
             ),
           ),
           for (final f in _forfaits)
@@ -633,15 +639,22 @@ class _ForfaitsScreenState extends State<ForfaitsScreen> {
 }
 
 class _ChampsForfait {
-  _ChampsForfait(this.nom, this.minutes, this.prix);
+  _ChampsForfait(this.nom, this.minutes, this.prix,
+      {this.appliquerAuStock = false});
   final String nom;
   final int minutes;
   final int prix;
+
+  /// Appliquer aussi le prix aux tickets non vendus de ce forfait.
+  final bool appliquerAuStock;
 }
 
 class _DialogueForfait extends StatefulWidget {
-  const _DialogueForfait({this.existant});
+  const _DialogueForfait({this.existant, this.nbStock = 0});
   final Forfait? existant;
+
+  /// Tickets non vendus de ce forfait.
+  final int nbStock;
 
   @override
   State<_DialogueForfait> createState() => _DialogueForfaitState();
@@ -663,6 +676,7 @@ class _DialogueForfaitState extends State<_DialogueForfait> {
   late final TextEditingController _nom;
   late final TextEditingController _prix;
   late int _minutes;
+  bool _appliquer = false;
 
   @override
   void initState() {
@@ -729,6 +743,19 @@ class _DialogueForfaitState extends State<_DialogueForfait> {
               decoration: const InputDecoration(
                   labelText: 'Prix (CDF)', border: OutlineInputBorder()),
             ),
+            if (widget.existant != null &&
+                widget.nbStock > 0 &&
+                prix != null &&
+                prix != widget.existant!.prix)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _appliquer,
+                onChanged: (v) => setState(() => _appliquer = v ?? false),
+                title: Text(
+                    'Appliquer aussi aux ${widget.nbStock} tickets non vendus de ce forfait'),
+                subtitle: const Text('Les ventes déjà faites gardent leur prix.'),
+              ),
           ],
         ),
       ),
@@ -739,7 +766,9 @@ class _DialogueForfaitState extends State<_DialogueForfait> {
         FilledButton(
           onPressed: valide
               ? () => Navigator.pop(
-                  context, _ChampsForfait(_nom.text.trim(), _minutes, prix))
+                  context,
+                  _ChampsForfait(_nom.text.trim(), _minutes, prix,
+                      appliquerAuStock: _appliquer))
               : null,
           child: const Text('Enregistrer'),
         ),
