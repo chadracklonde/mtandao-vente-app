@@ -1,3 +1,5 @@
+import 'caisse_screen.dart';
+import 'suivi_utilisation_screen.dart';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -33,6 +35,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _chargee = false;
 
   int _seuilStock = seuilStockParDefaut;
+  int _delaiDette = delaiDetteParDefaut;
   int _tauxDollar = 0;
 
   // Sauvegarde automatique Google Drive.
@@ -65,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final seuil = int.tryParse(
             await appState.repo.getSetting(cleSeuilStock) ?? '') ??
         seuilStockParDefaut;
+    final delaiDette = await appState.repo.delaiDetteJours();
     final taux = await appState.repo.tauxDollar();
     final driveActif =
         await appState.repo.getSetting(DriveBackup.cleActif) == '1';
@@ -81,6 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _driveWifi = driveWifi;
       _driveTaille = driveTaille;
       _seuilStock = seuil;
+      _delaiDette = delaiDette;
       _tauxDollar = taux;
       _driveActif = driveActif;
       _driveEmail = driveEmail;
@@ -165,6 +170,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final v = int.tryParse(saisi ?? '');
     if (v == null || v < 0) return;
     await appState.repo.setSetting(cleSeuilStock, '$v');
+    appState.changed();
+    await _charger();
+  }
+
+  Future<void> _modifierDelaiDette() async {
+    final saisi = await demanderTexte(
+      context,
+      titre: 'Dettes en retard',
+      libelle: 'Signaler un crédit non payé après combien de jours ? (0 = jamais)',
+      initial: '$_delaiDette',
+      clavier: TextInputType.number,
+    );
+    final v = int.tryParse(saisi ?? '');
+    if (v == null || v < 0) return;
+    await appState.repo.setSetting(cleDelaiDette, '$v');
     appState.changed();
     await _charger();
   }
@@ -338,6 +358,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: const Icon(Icons.chevron_right_rounded),
             onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const DettesScreen())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.event_busy_outlined),
+            title: const Text('Dettes en retard'),
+            subtitle: Text(_delaiDette <= 0
+                ? 'Pas de rappel de retard'
+                : 'Signaler un crédit non payé après $_delaiDette jours'),
+            onTap: _modifierDelaiDette,
+          ),
+          ListTile(
+            leading: const Icon(Icons.savings_outlined),
+            title: const Text('Clôture de caisse'),
+            subtitle: const Text('Comparer l\'argent compté à l\'argent attendu'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const CaisseScreen())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.fact_check_outlined),
+            title: const Text('Suivi d\'utilisation'),
+            subtitle: const Text('Excel du routeur : tickets utilisés ou jamais utilisés'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const SuiviUtilisationScreen())),
           ),
           ListTile(
             leading: const Icon(Icons.people_alt_outlined),

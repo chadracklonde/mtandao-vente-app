@@ -9,8 +9,9 @@ import 'package:sqflite/sqflite.dart';
 ///  1. forfaits, lots, tickets, images, réglages.
 ///  2. tickets défectueux, mode de paiement, clients (dettes), vendeurs.
 ///  3. paiement en dollars (devise, taux, montant reçu), code PIN des vendeurs.
+///  4. suivi d'utilisation des tickets (Excel), clôtures de caisse.
 class AppDb {
-  static const int version = 3;
+  static const int version = 4;
   static Database? _db;
 
   static Future<Database> open() async {
@@ -56,11 +57,31 @@ class AppDb {
     await _creerV1(db);
     await _migrerV1versV2(db);
     await _migrerV2versV3(db);
+    await _migrerV3versV4(db);
   }
 
   static Future<void> migrer(Database db, int ancienne, int nouvelle) async {
     if (ancienne < 2) await _migrerV1versV2(db);
     if (ancienne < 3) await _migrerV2versV3(db);
+    if (ancienne < 4) await _migrerV3versV4(db);
+  }
+
+  /// v4 : n'efface ni ne modifie aucune donnée. Ajoute la date d'utilisation
+  /// d'un ticket (lue dans l'export Excel du routeur) et les clôtures de caisse.
+  static Future<void> _migrerV3versV4(Database db) async {
+    await db.execute('ALTER TABLE tickets ADD COLUMN utilise_le INTEGER');
+    await db.execute('''
+      CREATE TABLE clotures(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        jour TEXT NOT NULL,
+        vendeur_id INTEGER,
+        attendu_cdf INTEGER NOT NULL,
+        compte_cdf INTEGER NOT NULL,
+        attendu_usd INTEGER NOT NULL DEFAULT 0,
+        compte_usd INTEGER NOT NULL DEFAULT 0,
+        note TEXT,
+        cree_le INTEGER NOT NULL
+      )''');
   }
 
   /// v3 : n'efface ni ne modifie aucune donnée. Les ventes existantes restent

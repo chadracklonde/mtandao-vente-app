@@ -5,6 +5,10 @@ import 'dart:typed_data';
 const String cleSeuilStock = 'seuil_stock';
 const int seuilStockParDefaut = 20;
 
+/// Délai (en jours) après lequel un ticket vendu à crédit et non payé est en retard.
+const String cleDelaiDette = 'delai_dette_jours';
+const int delaiDetteParDefaut = 7;
+
 /// Réglage : francs congolais pour 1 dollar. 0 ou absent : paiement en dollars
 /// désactivé (tout se passe en francs).
 const String cleTauxDollar = 'taux_dollar';
@@ -151,6 +155,7 @@ class Ticket {
     this.devise = Devise.cdf,
     this.taux,
     this.montantDevise,
+    this.utiliseLe,
   });
 
   final int id;
@@ -175,6 +180,9 @@ class Ticket {
   final String devise;
   final int? taux;
   final int? montantDevise;
+
+  /// Date d'utilisation sur le réseau, lue dans l'export Excel du routeur.
+  final DateTime? utiliseLe;
 
   /// Vrai si le mot de passe diffère du code (ticket « utilisateur + mot de passe »).
   bool get aMotDePasseDistinct =>
@@ -204,6 +212,9 @@ class Ticket {
         devise: (m['devise'] as String?) ?? Devise.cdf,
         taux: m['taux'] as int?,
         montantDevise: m['montant_devise'] as int?,
+        utiliseLe: m['utilise_le'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(m['utilise_le'] as int),
       );
 }
 
@@ -364,4 +375,75 @@ class VenteLigne {
   bool get aRecevoir => paiement == Paiement.credit && payeLe == null;
 
   int get montantEncaisse => encaisse ? prix : 0;
+}
+
+/// Un ticket trouvé par la recherche, avec ce qu'il faut pour l'afficher.
+class TicketRecherche {
+  TicketRecherche({
+    required this.ticket,
+    required this.forfaitNom,
+    required this.lotNom,
+    this.clientNom,
+    this.clientTelephone,
+    this.vendeurNom,
+  });
+  final Ticket ticket;
+  final String forfaitNom;
+  final String lotNom;
+  final String? clientNom;
+  final String? clientTelephone;
+  final String? vendeurNom;
+}
+
+/// Résultat de la comparaison avec l'export Excel du routeur.
+class RapportUtilisation {
+  RapportUtilisation({
+    required this.marques,
+    required this.vendusNonUtilises,
+    required this.utilisesNonVendus,
+    required this.inconnus,
+  });
+
+  /// Tickets nouvellement marqués « utilisés ».
+  final int marques;
+
+  /// Vendus, mais jamais utilisés par le client (d'après le routeur).
+  final List<Ticket> vendusNonUtilises;
+
+  /// Utilisés sur le réseau alors qu'ils sont encore en stock (non vendus).
+  final List<Ticket> utilisesNonVendus;
+
+  /// Codes du fichier absents de l'application.
+  final int inconnus;
+}
+
+/// Une clôture de caisse enregistrée.
+class Cloture {
+  Cloture({
+    required this.id,
+    required this.jour,
+    this.vendeurId,
+    this.vendeurNom,
+    required this.attenduCdf,
+    required this.compteCdf,
+    required this.attenduUsd,
+    required this.compteUsd,
+    this.note,
+    required this.creeLe,
+  });
+  final int id;
+  final String jour; // AAAA-MM-JJ
+  final int? vendeurId;
+  final String? vendeurNom;
+  final int attenduCdf;
+  final int compteCdf;
+
+  /// Dollars, en centimes.
+  final int attenduUsd;
+  final int compteUsd;
+  final String? note;
+  final DateTime creeLe;
+
+  int get ecartCdf => compteCdf - attenduCdf;
+  int get ecartUsd => compteUsd - attenduUsd;
 }

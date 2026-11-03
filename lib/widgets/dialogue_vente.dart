@@ -7,9 +7,12 @@ import 'dialogues.dart';
 /// Ce que le vendeur a choisi dans la fenêtre de confirmation d'une vente.
 class ChoixVente {
   const ChoixVente(this.paiement, this.clientId,
-      {this.devise = Devise.cdf, this.taux});
+      {this.devise = Devise.cdf, this.taux, this.quantite = 1});
   final String paiement;
   final int? clientId;
+
+  /// Nombre de tickets vendus d'un coup (1 par défaut).
+  final int quantite;
 
   /// Devise reçue ; pour le dollar, [taux] = francs pour 1 dollar.
   final String devise;
@@ -21,6 +24,7 @@ class ChoixVente {
 Future<ChoixVente?> demanderVente(
   BuildContext context, {
   required Ticket ticket,
+  List<Ticket> prochains = const [],
   required List<Client> clients,
   required Future<int> Function(String nom, String? telephone) creerClient,
   String? vendeurNom,
@@ -30,6 +34,7 @@ Future<ChoixVente?> demanderVente(
     context: context,
     builder: (_) => DialogueVente(
       ticket: ticket,
+      prochains: prochains,
       clients: clients,
       creerClient: creerClient,
       vendeurNom: vendeurNom,
@@ -42,6 +47,7 @@ class DialogueVente extends StatefulWidget {
   const DialogueVente({
     super.key,
     required this.ticket,
+    this.prochains = const [],
     required this.clients,
     required this.creerClient,
     this.vendeurNom,
@@ -49,6 +55,10 @@ class DialogueVente extends StatefulWidget {
   });
 
   final Ticket ticket;
+
+  /// Les prochains tickets à vendre (le premier est [ticket]) : permet de
+  /// choisir une quantité et d'afficher le montant total.
+  final List<Ticket> prochains;
   final List<Client> clients;
   final Future<int> Function(String nom, String? telephone) creerClient;
   final String? vendeurNom;
@@ -64,6 +74,7 @@ class _DialogueVenteState extends State<DialogueVente> {
   String _paiement = Paiement.especes;
   String _devise = Devise.cdf;
   int? _clientId;
+  int _quantite = 1;
   late List<Client> _clients;
 
   @override
@@ -71,6 +82,12 @@ class _DialogueVenteState extends State<DialogueVente> {
     super.initState();
     _clients = List.of(widget.clients);
   }
+
+  List<Ticket> get _lot => widget.prochains.isEmpty
+      ? [widget.ticket]
+      : widget.prochains.take(_quantite).toList();
+
+  int get _total => _lot.fold(0, (a, t) => a + t.prix);
 
   bool get _valide => _paiement != Paiement.credit || _clientId != null;
 
@@ -104,7 +121,41 @@ class _DialogueVenteState extends State<DialogueVente> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Ticket ${t.code}\nMontant : ${cdf(t.prix)}'),
+            Text(_quantite == 1
+                ? 'Ticket ${t.code}\nMontant : ${cdf(t.prix)}'
+                : '$_quantite tickets (${_lot.map((x) => x.code).join(', ')})\nMontant : ${cdf(_total)}'),
+            if (widget.prochains.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(
+                  children: [
+                    Text('Quantité',
+                        style: Theme.of(context).textTheme.labelLarge),
+                    const Spacer(),
+                    IconButton.filledTonal(
+                      tooltip: 'Un ticket de moins',
+                      onPressed: _quantite > 1
+                          ? () => setState(() => _quantite--)
+                          : null,
+                      icon: const Icon(Icons.remove_rounded),
+                    ),
+                    SizedBox(
+                      width: 44,
+                      child: Text('$_quantite',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                              fontSize: 20, fontWeight: FontWeight.w800)),
+                    ),
+                    IconButton.filledTonal(
+                      tooltip: 'Un ticket de plus',
+                      onPressed: _quantite < widget.prochains.length
+                          ? () => setState(() => _quantite++)
+                          : null,
+                      icon: const Icon(Icons.add_rounded),
+                    ),
+                  ],
+                ),
+              ),
             if (widget.vendeurNom != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -153,7 +204,7 @@ class _DialogueVenteState extends State<DialogueVente> {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    'À recevoir : ${Devise.formaterDollar(Devise.centimesDollar(t.prix, widget.tauxDollar))}'
+                    'À recevoir : ${Devise.formaterDollar(_lot.fold(0, (a, x) => a + Devise.centimesDollar(x.prix, widget.tauxDollar)))}'
                     '  (1 dollar = ${cdf(widget.tauxDollar)})',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
@@ -217,6 +268,7 @@ class _DialogueVenteState extends State<DialogueVente> {
                     _clientId,
                     devise: _devise,
                     taux: _devise == Devise.usd ? widget.tauxDollar : null,
+                    quantite: _quantite,
                   ))
               : null,
           child: const Text('Oui, vendu'),

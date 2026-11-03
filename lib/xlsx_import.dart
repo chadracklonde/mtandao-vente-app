@@ -28,9 +28,83 @@ class XlsxImporter {
     return res;
   }
 
+  /// Statuts de l'export du routeur : codes déjà utilisés, et codes encore
+  /// disponibles (« Inutilisé »). Sert au suivi d'utilisation.
+  static Future<({Set<String> utilises, Set<String> disponibles})> lireStatuts(
+      String chemin) async {
+    final Uint8List octets;
+    try {
+      octets = await File(chemin).readAsBytes();
+    } catch (_) {
+      throw ImportException('Impossible d\'ouvrir ce fichier Excel.');
+    }
+    return compute(statutsOctets, octets);
+  }
+
+  @visibleForTesting
+  static ({Set<String> utilises, Set<String> disponibles}) statutsOctets(
+      Uint8List octets) {
+    final t = _tableau(octets);
+    if (t.colStatut == null) {
+      throw ImportException(
+          'Ce tableur n\'a pas de colonne « Statut » : impossible de savoir quels tickets sont utilisés.');
+    }
+    final utilises = <String>{}, disponibles = <String>{};
+    for (var i = t.debut; i < t.lignes.length; i++) {
+      final l = t.lignes[i];
+      final code = (l[t.colCode] ?? '').trim();
+      if (!RegExp(r'^[A-Za-z0-9_\-]{3,32}$').hasMatch(code)) continue;
+      (_dejaUtilise(l[t.colStatut!] ?? '') ? utilises : disponibles).add(code);
+    }
+    return (utilises: utilises, disponibles: disponibles);
+  }
+
   /// Lecture pure (testable) d'un classeur déjà chargé en mémoire.
   @visibleForTesting
   static ParsedPdf lireOctets(Uint8List octets) {
+    final t = _tableau(octets);
+    final lignes = t.lignes;
+    final colCode = t.colCode, colStatut = t.colStatut, colDuree = t.colDuree;
+    final debut = t.debut;
+    final tickets = <TexteTicket>[];
+    final codes = <ParsedTicket>[];
+    var dejaUtilises = 0;
+    for (var i = debut; i < lignes.length; i++) {
+      final l = lignes[i];
+      final code = (l[colCode] ?? '').trim();
+      if (!RegExp(r'^[A-Za-z0-9_\-]{3,32}$').hasMatch(code)) continue;
+      final statut = colStatut == null ? '' : (l[colStatut] ?? '');
+      if (_dejaUtilise(statut)) {
+        dejaUtilises++;
+        continue;
+      }
+      final duree =
+          colDuree == null ? null : TextTicketParser.dureeDe(l[colDuree] ?? '');
+      tickets.add(TexteTicket(code, duree));
+      codes.add(ParsedTicket(code: code, numero: codes.length + 1));
+    }
+    if (codes.isEmpty) {
+      throw ImportException(dejaUtilises > 0
+          ? 'Les $dejaUtilises tickets de ce tableur sont déjà utilisés : aucun n\'est disponible à la vente.'
+          : 'Aucun ticket reconnu dans ce tableur. Une colonne « ID de coupon » (ou « Code ») est attendue.');
+    }
+    return ParsedPdf(
+      source: 'excel',
+      slots: codes,
+      echecs: {},
+      dureeMinutes: TextTicketParser.dureeCommune(tickets),
+      ignores: dejaUtilises,
+    );
+  }
+
+  /// Ouvre le classeur et repère les colonnes utiles.
+  static ({
+    List<Map<int, String>> lignes,
+    int colCode,
+    int? colStatut,
+    int? colDuree,
+    int debut,
+  }) _tableau(Uint8List octets) {
     final Archive zip;
     try {
       zip = ZipDecoder().decodeBytes(octets);
@@ -90,37 +164,12 @@ class XlsxImporter {
       }
     });
     final avecEntete = colCode != null;
-    colCode ??= 0;
-    final debut = avecEntete ? 1 : 0;
-
-    final tickets = <TexteTicket>[];
-    final codes = <ParsedTicket>[];
-    var dejaUtilises = 0;
-    for (var i = debut; i < lignes.length; i++) {
-      final l = lignes[i];
-      final code = (l[colCode] ?? '').trim();
-      if (!RegExp(r'^[A-Za-z0-9_\-]{3,32}$').hasMatch(code)) continue;
-      final statut = colStatut == null ? '' : (l[colStatut] ?? '');
-      if (_dejaUtilise(statut)) {
-        dejaUtilises++;
-        continue;
-      }
-      final duree =
-          colDuree == null ? null : TextTicketParser.dureeDe(l[colDuree] ?? '');
-      tickets.add(TexteTicket(code, duree));
-      codes.add(ParsedTicket(code: code, numero: codes.length + 1));
-    }
-    if (codes.isEmpty) {
-      throw ImportException(dejaUtilises > 0
-          ? 'Les $dejaUtilises tickets de ce tableur sont déjà utilisés : aucun n\'est disponible à la vente.'
-          : 'Aucun ticket reconnu dans ce tableur. Une colonne « ID de coupon » (ou « Code ») est attendue.');
-    }
-    return ParsedPdf(
-      source: 'excel',
-      slots: codes,
-      echecs: {},
-      dureeMinutes: TextTicketParser.dureeCommune(tickets),
-      ignores: dejaUtilises,
+    return (
+      lignes: lignes,
+      colCode: colCode ?? 0,
+      colStatut: colStatut,
+      colDuree: colDuree,
+      debut: avecEntete ? 1 : 0,
     );
   }
 

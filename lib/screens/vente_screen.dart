@@ -6,12 +6,15 @@ import 'package:share_plus/share_plus.dart';
 
 import '../drive_backup.dart';
 import '../format.dart';
+import '../message_ticket.dart';
 import '../models.dart';
 import '../state.dart';
 import '../widgets/barre_progression.dart';
 import '../widgets/code_vendeur.dart';
 import '../widgets/dialogue_vente.dart';
 import '../widgets/ticket_card.dart';
+import 'dettes_screen.dart';
+import 'historique_screen.dart';
 import 'import_flow.dart';
 import 'saisie_manuelle.dart';
 
@@ -41,6 +44,8 @@ class _VenteScreenState extends State<VenteScreen> {
 
   // Alerte de sauvegarde (l'alerte de stock bas se calcule à l'affichage).
   String? _alerteSauvegarde;
+  String? _alerteDettes;
+  bool _dettesMasquees = false;
   bool _rappelMasque = false;
   bool _chargement = true;
   bool _occupe = false;
@@ -48,6 +53,7 @@ class _VenteScreenState extends State<VenteScreen> {
   // Bannière de confirmation (remplace la barre du bas, qui masquait VENDU).
   String? _bandeau;
   bool _bandeauAnnulable = false;
+  VoidCallback? _bandeauEnvoi; // « Envoyer le code au client »
   Timer? _minuteurBandeau;
 
   @override
@@ -153,11 +159,12 @@ class _VenteScreenState extends State<VenteScreen> {
 
   /// Affiche un message en haut de l'écran, sans jamais recouvrir les boutons.
   void _afficherBandeau(String message,
-      {bool annulable = false, int secondes = 4}) {
+      {bool annulable = false, int secondes = 4, VoidCallback? envoi}) {
     _minuteurBandeau?.cancel();
     setState(() {
       _bandeau = message;
       _bandeauAnnulable = annulable;
+      _bandeauEnvoi = envoi;
     });
     _minuteurBandeau = Timer(Duration(seconds: secondes), () {
       if (mounted) setState(() => _bandeau = null);
@@ -207,6 +214,10 @@ class _VenteScreenState extends State<VenteScreen> {
     final vendeurs = await repo.vendeurs(seulementActifs: true);
     final vendeurActif = await repo.vendeurActifId();
     final alerteSauvegarde = await _calculerAlerteSauvegarde(dernier != null);
+    final retards = await repo.dettesEnRetard();
+    final alerteDettes = retards.isEmpty
+        ? null
+        : '${retards.length} ticket${retards.length > 1 ? 's' : ''} à crédit non payé${retards.length > 1 ? 's' : ''} en retard (${cdf(retards.fold(0, (a, d) => a + d.prix))}).';
     if (!mounted) return;
     setState(() {
       _profils = profils;
@@ -220,6 +231,7 @@ class _VenteScreenState extends State<VenteScreen> {
       _vendeurs = vendeurs;
       _vendeurActifId = vendeurActif;
       _alerteSauvegarde = alerteSauvegarde;
+      _alerteDettes = alerteDettes;
       _chargement = false;
     });
   }
@@ -230,43 +242,62 @@ class _VenteScreenState extends State<VenteScreen> {
     _occupe = true;
     try {
       // Confirmation pour éviter un appui par inadvertance : on choisit aussi
-      // le mode de paiement (espèces par défaut).
+      // le mode de paiement (espèces par défaut) et, si besoin, la quantité.
       final repo = appState.repo;
       final clients = await repo.clients();
       final taux = await repo.tauxDollar();
+      final prochains = await repo.prochainsTicketsForfait(t.forfaitId, 30,
+          lotPrefereId: appState.lotActifId);
       if (!mounted) return;
       final vendeur = _vendeurActif;
       final choix = await demanderVente(
         context,
         ticket: t,
+        prochains: prochains,
         clients: clients,
         creerClient: (nom, tel) => repo.ajouterClient(nom, telephone: tel),
         vendeurNom: vendeur?.nom,
         tauxDollar: taux,
       );
       if (choix == null) return;
-      final ok = await repo.vendre(
-        t.id,
-        paiement: choix.paiement,
-        clientId: choix.clientId,
-        vendeurId: vendeur?.id,
-        devise: choix.devise,
-        taux: choix.taux,
-      );
+      final List<Ticket> vendus;
+      if (choix.quantite <= 1) {
+        final ok = await repo.vendre(
+          t.id,
+          paiement: choix.paiement,
+          clientId: choix.clientId,
+          vendeurId: vendeur?.id,
+          devise: choix.devise,
+          taux: choix.taux,
+        );
+        vendus = ok ? [t] : [];
+      } else {
+        vendus = await repo.vendreQuantite(
+          t.forfaitId,
+          choix.quantite,
+          lotPrefereId: appState.lotActifId,
+          paiement: choix.paiement,
+          clientId: choix.clientId,
+          vendeurId: vendeur?.id,
+          devise: choix.devise,
+          taux: choix.taux,
+        );
+      }
       HapticFeedback.mediumImpact();
       appState.changed();
       if (!mounted) return;
-      if (ok) {
+      if (vendus.isNotEmpty) {
         // Le client a pu être créé pendant la vente : on relit la liste.
-        final nomClient = choix.clientId == null
+        final client = choix.clientId == null
             ? null
             : (await repo.clients())
                 .where((c) => c.id == choix.clientId)
-                .map((c) => c.nom)
                 .firstOrNull;
+        final nomClient = client?.nom;
         if (!mounted) return;
+        final total = vendus.fold(0, (a, x) => a + x.prix);
         final dollars = choix.devise == Devise.usd
-            ? '  ·  reçu ${Devise.formaterDollar(Devise.centimesDollar(t.prix, choix.taux!))}'
+            ? '  ·  reçu ${Devise.formaterDollar(vendus.fold(0, (a, x) => a + Devise.centimesDollar(x.prix, choix.taux!)))}'
             : '';
         final pour = nomClient == null ? '' : '  ·  $nomClient';
         final detail = switch (choix.paiement) {
@@ -274,8 +305,22 @@ class _VenteScreenState extends State<VenteScreen> {
           Paiement.credit => '  ·  à crédit (${nomClient ?? 'client'})',
           final p => '  ·  ${Paiement.libelle(p).toLowerCase()}$pour',
         };
-        _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}$detail$dollars',
-            annulable: true);
+        final quoi = vendus.length == 1
+            ? 'Ticket ${t.code} vendu'
+            : '${vendus.length} tickets vendus';
+        final url = _lotTicket?.loginUrl ??
+            (await repo.getSetting('login_url')) ??
+            'http://mtandao.wifi';
+        if (!mounted) return;
+        _afficherBandeau('$quoi  ·  ${cdf(total)}$detail$dollars',
+            annulable: true,
+            secondes: 8,
+            envoi: () => Share.share(messageTickets(
+                  tickets: vendus,
+                  forfaitNom: _profil?.forfait.nom ?? '',
+                  url: url,
+                  clientNom: nomClient,
+                )));
       } else {
         _afficherBandeau('Ticket ${t.code} indisponible : il a déjà été vendu '
             'ou signalé défectueux.');
@@ -287,22 +332,27 @@ class _VenteScreenState extends State<VenteScreen> {
 
   Future<void> _annuler({bool confirmer = true}) async {
     if (_occupe) return;
-    // La dernière vente, quel que soit le forfait : une erreur de forfait
-    // peut ainsi s'annuler sans changer d'écran.
-    final dernier = await appState.repo.dernierVenduGlobal();
-    if (dernier == null) return;
+    // La dernière vente (un ou plusieurs tickets), quel que soit le forfait :
+    // une erreur de forfait peut ainsi s'annuler sans changer d'écran.
+    final groupe = await appState.repo.derniereVente();
+    if (groupe.isEmpty) return;
+    final dernier = groupe.last;
     final forfait = _profils
         .where((p) => p.forfait.id == dernier.forfaitId)
         .map((p) => _etiquette(p))
         .firstOrNull;
+    final quoi = groupe.length == 1
+        ? 'Ticket ${dernier.code}${forfait == null ? '' : ' ($forfait)'}'
+        : '${groupe.length} tickets (${groupe.map((t) => t.code).join(', ')})';
     if (confirmer) {
       if (!mounted) return;
       final ok = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Annuler la dernière vente ?'),
-          content: Text(
-              'Le ticket ${dernier.code}${forfait == null ? '' : ' ($forfait)'} sera remis en vente et son montant retiré du total.'),
+          content: Text(groupe.length == 1
+              ? 'Le ${quoi[0].toLowerCase()}${quoi.substring(1)} sera remis en vente et son montant retiré du total.'
+              : '$quoi seront remis en vente et leur montant retiré du total.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -319,7 +369,9 @@ class _VenteScreenState extends State<VenteScreen> {
     appState.changed();
     if (!mounted) return;
     _afficherBandeau(
-        'Ticket ${dernier.code}${forfait == null ? '' : ' ($forfait)'} remis en vente',
+        groupe.length == 1
+            ? '$quoi remis en vente'
+            : '${groupe.length} tickets remis en vente',
         secondes: 3);
   }
 
@@ -352,6 +404,14 @@ class _VenteScreenState extends State<VenteScreen> {
                 style: TextStyle(fontWeight: FontWeight.bold)),
           ],
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Rechercher un ticket',
+            icon: const Icon(Icons.search_rounded),
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const HistoriqueScreen())),
+          ),
+        ],
       ),
       body: _chargement
           ? const Center(child: CircularProgressIndicator())
@@ -527,6 +587,17 @@ class _VenteScreenState extends State<VenteScreen> {
             surFermer: () => setState(() => _rappelMasque = true),
           ),
 
+        if (_alerteDettes != null && !_dettesMasquees)
+          _carteAlerte(
+            context,
+            icone: Icons.event_busy_outlined,
+            texte: _alerteDettes!,
+            action: 'Voir',
+            surAction: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DettesScreen())),
+            surFermer: () => setState(() => _dettesMasquees = true),
+          ),
+
         // ------------------------------------------- confirmation de la vente
         AnimatedSize(
           duration: const Duration(milliseconds: 150),
@@ -690,6 +761,12 @@ class _VenteScreenState extends State<VenteScreen> {
                     fontWeight: FontWeight.w600),
               ),
             ),
+            if (_bandeauEnvoi != null)
+              IconButton(
+                tooltip: 'Envoyer le code au client',
+                onPressed: _bandeauEnvoi,
+                icon: const Icon(Icons.send_rounded),
+              ),
             if (_bandeauAnnulable)
               TextButton(
                 onPressed: () {

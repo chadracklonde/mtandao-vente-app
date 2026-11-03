@@ -3,6 +3,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../format.dart';
 import '../models.dart';
+import '../repo.dart';
 import '../state.dart';
 
 /// Tickets vendus à crédit et pas encore payés, regroupés par client.
@@ -15,6 +16,7 @@ class DettesScreen extends StatefulWidget {
 
 class _DettesScreenState extends State<DettesScreen> {
   List<DetteLigne> _lignes = [];
+  int _delai = delaiDetteParDefaut;
   bool _chargement = true;
 
   @override
@@ -32,9 +34,11 @@ class _DettesScreenState extends State<DettesScreen> {
 
   Future<void> _charger() async {
     final l = await appState.repo.dettes();
+    final delai = await appState.repo.delaiDetteJours();
     if (!mounted) return;
     setState(() {
       _lignes = l;
+      _delai = delai;
       _chargement = false;
     });
   }
@@ -184,7 +188,19 @@ class _DettesScreenState extends State<DettesScreen> {
           title: Text(d.code,
               style: const TextStyle(
                   fontWeight: FontWeight.w700, letterSpacing: 1)),
-          subtitle: Text('${fmtDateHeure(d.venduLe)}  ·  ${cdf(d.prix)}'),
+          subtitle: Builder(builder: (context) {
+            final jours = DateTime.now().difference(d.venduLe).inDays;
+            final retard = Repo.detteEnRetard(d, _delai, DateTime.now());
+            return Text(
+              '${fmtDateHeure(d.venduLe)}  ·  ${cdf(d.prix)}'
+              '${retard ? '\nEn retard : $jours jours' : ''}',
+              style: retard
+                  ? TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                      fontWeight: FontWeight.w600)
+                  : null,
+            );
+          }),
           trailing: TextButton(
             onPressed: () => _payerTicket(d),
             child: const Text('Payé'),

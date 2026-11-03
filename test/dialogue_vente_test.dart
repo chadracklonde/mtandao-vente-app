@@ -24,6 +24,7 @@ Future<Future<ChoixVente?> Function()> _ouvrir(
   List<Client> clients = const [],
   String? vendeurNom,
   int tauxDollar = 0,
+  List<Ticket> prochains = const [],
   Future<int> Function(String, String?)? creerClient,
 }) async {
   ChoixVente? resultat;
@@ -37,6 +38,7 @@ Future<Future<ChoixVente?> Function()> _ouvrir(
               resultat = await demanderVente(
                 context,
                 ticket: _ticket(),
+                prochains: prochains,
                 clients: clients,
                 vendeurNom: vendeurNom,
                 tauxDollar: tauxDollar,
@@ -228,5 +230,32 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Monnaie reçue'), findsNothing);
     });
+  });
+
+  testWidgets('quantité : le montant total suit, et la quantité est retournée', (tester) async {
+    Ticket t(int i) => Ticket(
+        id: i, lotId: 1, position: i, numero: i, code: 'Q$i', motDePasse: null,
+        qrTexte: null, prix: 1000, forfaitId: 1, vendu: false, venduLe: null);
+    final resultat = await _ouvrir(tester, prochains: [t(1), t(2), t(3)]);
+    await tester.tap(find.text('ouvrir'));
+    await tester.pumpAndSettle();
+    expect(find.text('Quantité'), findsOneWidget);
+    await tester.tap(find.byTooltip('Un ticket de plus'));
+    await tester.tap(find.byTooltip('Un ticket de plus'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('3 tickets'), findsOneWidget);
+    expect(find.textContaining(cdf(3000)), findsOneWidget);
+    // On ne dépasse pas le stock disponible.
+    expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.add_rounded)).onPressed, isNull);
+    await tester.tap(find.text('Oui, vendu'));
+    await tester.pumpAndSettle();
+    expect((await resultat())!.quantite, 3);
+  });
+
+  testWidgets('un seul ticket disponible : pas de choix de quantité', (tester) async {
+    await _ouvrir(tester);
+    await tester.tap(find.text('ouvrir'));
+    await tester.pumpAndSettle();
+    expect(find.text('Quantité'), findsNothing);
   });
 }

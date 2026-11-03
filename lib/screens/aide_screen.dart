@@ -24,7 +24,8 @@ class AideScreen extends StatelessWidget {
       Icons.point_of_sale_rounded,
       'Vendre',
       'L\'écran Vente montre un ticket à la fois. Appuyez sur VENDU, choisissez le paiement '
-          '(espèces par défaut) et confirmez. Le ticket suivant apparaît.',
+          '(espèces par défaut), le client si vous voulez (facultatif) et la quantité si le client en prend plusieurs. '
+          'Confirmez : le ticket suivant apparaît. La flèche d\'envoi du bandeau envoie le code au client.',
     ),
     _Etape(
       Icons.undo_rounded,
@@ -37,6 +38,12 @@ class AideScreen extends StatelessWidget {
       'Crédit, mobile money, offert',
       'À la vente, choisissez À crédit pour un client qui paiera plus tard : le montant '
           'reste « à recevoir » jusqu\'à son paiement (Réglages > Clients et dettes).',
+    ),
+    _Etape(
+      Icons.search_rounded,
+      'Retrouver un ticket',
+      'La loupe en haut de l\'écran Vente cherche un ticket par son code, ou les achats d\'un client. '
+          'Dans Réglages : Clôture de caisse (argent compté contre argent attendu) et Suivi d\'utilisation (Excel du routeur).',
     ),
     _Etape(
       Icons.bar_chart_rounded,
