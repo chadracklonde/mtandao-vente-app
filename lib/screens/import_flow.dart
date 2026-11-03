@@ -388,8 +388,14 @@ class DialogueConfirmationImportImportState extends State<DialogueConfirmationIm
                 labelText: 'Prix de chaque ticket (CDF)',
                 helperText: widget.prixDetecte != null
                     ? 'Prix lu dans le PDF. Vous pouvez le modifier.'
-                    : 'Prix du forfait. Vous pouvez le modifier pour ce lot.',
-                helperMaxLines: 2,
+                    : 'Prix non lu dans ce PDF : vérifiez-le ou saisissez-le. Proposé : le prix du forfait.',
+                helperMaxLines: 3,
+                // Sans prix lu, l'aide ressort pour qu'on ne l'importe pas sans y penser.
+                helperStyle: widget.prixDetecte == null
+                    ? TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w600)
+                    : null,
                 border: const OutlineInputBorder(),
               ),
             ),

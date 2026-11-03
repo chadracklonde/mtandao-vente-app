@@ -194,7 +194,8 @@ void main() {
     testWidgets('sans prix dans le PDF : le prix du forfait est proposé', (t) async {
       final resultat = await demarrer(t, duree: 1440);
       expect(champPrix(t), '1000');
-      expect(find.textContaining('Prix du forfait'), findsOneWidget);
+      expect(find.textContaining('Prix non lu dans ce PDF'), findsOneWidget);
+      expect(find.textContaining('Prix lu dans le PDF'), findsNothing);
       await t.tap(find.text('Importer'));
       await t.pumpAndSettle();
       final c = (await resultat())!;
@@ -206,6 +207,7 @@ void main() {
       await demarrer(t, prixDetecte: 750, duree: 1440);
       expect(champPrix(t), '750');
       expect(find.textContaining('Prix lu dans le PDF'), findsOneWidget);
+      expect(find.textContaining('Prix non lu'), findsNothing);
 
       await t.tap(find.byType(DropdownButton<int>));
       await t.pumpAndSettle();
