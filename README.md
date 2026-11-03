@@ -13,6 +13,7 @@ des rapports par jour, semaine, mois ou période libre.
 | Fonction | Détail |
 |---|---|
 | **Import de PDF** | Lit directement le PDF sur le téléphone. Deux modèles reconnus automatiquement (voir plus bas). |
+| **Plusieurs forfaits** | Sur l'écran Vente, une pastille par forfait (1 h, 2 h, 24 h, 1 semaine, 1 mois…), classées par durée, avec le nombre de tickets restants : un appui change de forfait, et le dernier choisi est mémorisé. Le forfait et le prix s'affichent en grand au-dessus du ticket. Avec un seul forfait, l'écran reste inchangé. Un forfait épuisé le dit clairement ; l'alerte de stock bas est propre à chaque forfait ; « Annuler » reprend la dernière vente quel que soit le forfait. |
 | **Vente** | Un ticket en grand (image d'origine avec son QR, ou carte dessinée) + le code à copier. **VENDU** passe au suivant. À la confirmation on choisit le paiement : **espèces** (par défaut), **mobile money**, **à crédit** (avec un client) ou **offert**. |
 | **Saisie manuelle** | Coller ou taper un code par ligne (ou « code mot_de_passe ») : nouveau lot, ou ajout à un lot existant. Utile si le PDF est introuvable ou mal lu. |
 | **Alertes** | Stock bas (seuil réglable, 20 par défaut), rappel de sauvegarde, et alerte si la sauvegarde Google Drive échoue. |

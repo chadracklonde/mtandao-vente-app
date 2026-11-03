@@ -5,6 +5,7 @@ import 'package:mtandao/backup.dart';
 import 'package:mtandao/db.dart';
 import 'package:mtandao/models.dart';
 import 'package:mtandao/repo.dart';
+import 'package:mtandao/state.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Schéma d'origine (version 1), recopié tel quel : sert à vérifier que la
@@ -332,6 +333,134 @@ void main() {
       await repo.marquerPaye((await repo.dettes()).first.ticketId);
       expect(await repo.aRecevoirDuLot(lotId), 1000);
       expect(await repo.aRecevoirDuLot(9999), 0);
+    });
+  });
+
+  group('Vente par forfait', () {
+    /// Deux forfaits : 24 h (déjà créé, 4 tickets) et 1 h (3 tickets, 2 lots).
+    Future<(Repo, Forfait, Forfait)> deuxForfaits() async {
+      final (repo, _) = await _repoAvecLot();
+      final jour = (await repo.forfaits()).first;
+      final idHeure = await repo.ajouterForfait('1 heure', 60, 500);
+      final heure = (await repo.forfaits()).firstWhere((f) => f.id == idHeure);
+      await repo.importerLot(
+          nom: 'Heure A',
+          forfait: heure,
+          source: 'texte',
+          tickets: [ParsedTicket(code: 'H1'), ParsedTicket(code: 'H2')]);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await repo.importerLot(
+          nom: 'Heure B',
+          forfait: heure,
+          source: 'texte',
+          tickets: [ParsedTicket(code: 'H3')]);
+      return (repo, jour, heure);
+    }
+
+    test('les profils : forfaits classés par durée, avec leur stock', () async {
+      final (repo, jour, heure) = await deuxForfaits();
+      final p = await repo.profils();
+      expect(p.map((x) => x.forfait.id), [heure.id, jour.id]); // 1 h avant 24 h
+      expect(p.first.total, 3);
+      expect(p.first.restants, 3);
+      expect(p.last.restants, 4);
+    });
+
+    test('le stock tient compte des ventes, des défectueux et de l\'argent encaissé', () async {
+      final (repo, jour, heure) = await deuxForfaits();
+      final h = await repo.prochainTicketForfait(heure.id);
+      await repo.vendre(h!.id);
+      final h2 = await repo.prochainTicketForfait(heure.id);
+      await repo.signalerDefectueux(h2!.id);
+      final p = (await repo.profils()).firstWhere((x) => x.forfait.id == heure.id);
+      expect(p.total, 3);
+      expect(p.vendus, 1);
+      expect(p.defectueux, 1);
+      expect(p.restants, 1);
+      expect(p.montant, 500);
+      expect((await repo.profils()).firstWhere((x) => x.forfait.id == jour.id).vendus, 0);
+    });
+
+    test('un forfait désactivé sans ticket disparaît, avec des tickets il reste', () async {
+      final (repo, _, heure) = await deuxForfaits();
+      await repo.modifierForfait(heure.id, actif: false);
+      expect((await repo.profils()).any((x) => x.forfait.id == heure.id), isTrue);
+      while (true) {
+        final t = await repo.prochainTicketForfait(heure.id);
+        if (t == null) break;
+        await repo.vendre(t.id);
+      }
+      expect((await repo.profils()).any((x) => x.forfait.id == heure.id), isFalse);
+    });
+
+    test('le prochain ticket vient du lot le plus ancien du forfait', () async {
+      final (repo, _, heure) = await deuxForfaits();
+      final codes = <String>[];
+      while (true) {
+        final t = await repo.prochainTicketForfait(heure.id);
+        if (t == null) break;
+        codes.add(t.code);
+        await repo.vendre(t.id);
+      }
+      expect(codes, ['H1', 'H2', 'H3']);
+    });
+
+    test('le lot préféré passe en premier, s\'il est du bon forfait', () async {
+      final (repo, jour, heure) = await deuxForfaits();
+      final lots = await repo.lots();
+      final heureB = lots.firstWhere((l) => l.nom == 'Heure B');
+      expect((await repo.prochainTicketForfait(heure.id, lotPrefereId: heureB.id))!.code, 'H3');
+      // Lot préféré d'un autre forfait : ignoré.
+      expect((await repo.prochainTicketForfait(jour.id, lotPrefereId: heureB.id))!.code, 'C1');
+      // Lot préféré épuisé : on revient au plus ancien.
+      await repo.vendre((await repo.prochainTicketForfait(heure.id, lotPrefereId: heureB.id))!.id);
+      expect((await repo.prochainTicketForfait(heure.id, lotPrefereId: heureB.id))!.code, 'H1');
+    });
+
+    test('forfait sans ticket à vendre : aucun ticket', () async {
+      final (repo, _) = await _repoAvecLot();
+      final id = await repo.ajouterForfait('1 semaine', 10080, 5000);
+      expect(await repo.prochainTicketForfait(id), isNull);
+    });
+
+    test('dernière vente et annulation, tous forfaits confondus', () async {
+      final (repo, jour, heure) = await deuxForfaits();
+      expect(await repo.dernierVenduGlobal(), isNull);
+      await repo.vendre((await repo.prochainTicketForfait(jour.id))!.id);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await repo.vendre((await repo.prochainTicketForfait(heure.id))!.id);
+
+      expect((await repo.dernierVenduGlobal())!.code, 'H1');
+      final annule = await repo.annulerDerniereVenteGlobale();
+      expect(annule!.code, 'H1');
+      expect((await repo.dernierVenduGlobal())!.code, 'C1');
+    });
+
+    test('total d\'une période : tickets vendus et argent encaissé, tous forfaits', () async {
+      final (repo, jour, heure) = await deuxForfaits();
+      await repo.vendre((await repo.prochainTicketForfait(jour.id))!.id);
+      await repo.vendre((await repo.prochainTicketForfait(heure.id))!.id,
+          paiement: Paiement.offert);
+      final now = DateTime.now();
+      final s = await repo.statsPeriode(
+          now.subtract(const Duration(hours: 1)), now.add(const Duration(hours: 1)));
+      expect(s.vendus, 2);
+      expect(s.montant, 1000); // 24 h en espèces ; le ticket offert n'est pas encaissé
+      final vide = await repo.statsPeriode(
+          now.subtract(const Duration(days: 3)), now.subtract(const Duration(days: 2)));
+      expect(vide.vendus, 0);
+      expect(vide.montant, 0);
+    });
+
+    test('le forfait affiché est mémorisé, et suit le lot choisi', () async {
+      final (repo, jour, heure) = await deuxForfaits();
+      appState.utiliserPourTest(repo);
+      await appState.definirForfaitActif(heure.id);
+      expect(await repo.getSetting('forfait_actif'), '${heure.id}');
+      final lotJour = (await repo.lots()).firstWhere((l) => l.forfaitId == jour.id);
+      await appState.definirLotActif(lotJour.id);
+      expect(appState.forfaitActifId, jour.id);
+      expect(await repo.getSetting('forfait_actif'), '${jour.id}');
     });
   });
 
