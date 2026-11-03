@@ -27,6 +27,7 @@ class Sauvegarde {
       cle.startsWith('pin_') ||
       cle.startsWith('drive_') ||
       cle == 'lot_actif' ||
+      cle == 'forfait_actif' ||
       cle == 'vendeur_actif' ||
       cle == 'theme' ||
       cle == 'guide_vu' ||

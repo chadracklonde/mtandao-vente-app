@@ -160,7 +160,7 @@ void main() {
 
   testWidgets('alerte de stock bas, avec le seuil par défaut (20)', (t) async {
     await afficher(t);
-    expect(find.textContaining('Plus que 4 tickets en stock'), findsOneWidget);
+    expect(find.textContaining('Plus que 4 tickets'), findsOneWidget);
     expect(find.text('Importer'), findsOneWidget);
   });
 

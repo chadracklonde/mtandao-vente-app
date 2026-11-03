@@ -38,9 +38,13 @@ class AppState extends ChangeNotifier {
   late Repo repo;
   int? lotActifId;
 
+  /// Forfait affiché sur l'écran de vente (le dernier choisi, mémorisé).
+  int? forfaitActifId;
+
   Future<void> init() async {
     repo = Repo(await AppDb.open());
     lotActifId = int.tryParse(await repo.getSetting('lot_actif') ?? '');
+    forfaitActifId = int.tryParse(await repo.getSetting('forfait_actif') ?? '');
     themeMode.value = themeDepuis(await repo.getSetting(cleTheme));
   }
 
@@ -56,12 +60,30 @@ class AppState extends ChangeNotifier {
   /// À appeler après toute écriture pour rafraîchir les écrans.
   void changed() => notifyListeners();
 
+  /// Choisit le forfait affiché sur l'écran de vente.
+  Future<void> definirForfaitActif(int? id) async {
+    forfaitActifId = id;
+    if (id == null) {
+      await repo.removeSetting('forfait_actif');
+    } else {
+      await repo.setSetting('forfait_actif', '$id');
+    }
+    notifyListeners();
+  }
+
+  /// Choisit le lot dont on vend les tickets en priorité ; l'écran de vente
+  /// passe aussi sur le forfait de ce lot.
   Future<void> definirLotActif(int? id) async {
     lotActifId = id;
     if (id == null) {
       await repo.removeSetting('lot_actif');
     } else {
       await repo.setSetting('lot_actif', '$id');
+      final lot = await repo.lot(id);
+      if (lot != null) {
+        forfaitActifId = lot.forfaitId;
+        await repo.setSetting('forfait_actif', '${lot.forfaitId}');
+      }
     }
     notifyListeners();
   }

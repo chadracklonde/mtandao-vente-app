@@ -234,6 +234,83 @@ class Repo {
     return Ticket.fromMap(r.first);
   }
 
+  /// Les forfaits qui ont des tickets, classés par durée, avec leur stock.
+  /// Un forfait désactivé n'apparaît que s'il lui reste des tickets.
+  Future<List<ProfilStock>> profils() async {
+    final r = await db.rawQuery('''
+      SELECT f.*,
+        COUNT(t.id) AS total,
+        COALESCE(SUM(CASE WHEN t.vendu = 1 THEN 1 ELSE 0 END), 0) AS vendus,
+        COALESCE(SUM(CASE WHEN t.vendu = 0 AND t.defectueux = 1 THEN 1 ELSE 0 END), 0) AS defectueux,
+        COALESCE(SUM(CASE WHEN t.vendu = 1 AND ${encaisse('t.')} THEN t.prix ELSE 0 END), 0) AS montant
+      FROM forfaits f JOIN tickets t ON t.forfait_id = f.id
+      GROUP BY f.id
+      ORDER BY f.duree_minutes ASC, f.id ASC''');
+    final liste = [
+      for (final m in r)
+        ProfilStock(
+          forfait: Forfait.fromMap(m),
+          total: m['total'] as int,
+          vendus: m['vendus'] as int,
+          defectueux: m['defectueux'] as int,
+          montant: m['montant'] as int,
+        ),
+    ];
+    return liste.where((p) => p.forfait.actif || p.restants > 0).toList();
+  }
+
+  /// Prochain ticket à vendre pour un forfait. On prend d'abord dans le lot
+  /// préféré ([lotPrefereId], s'il est de ce forfait et qu'il lui reste des
+  /// tickets), sinon dans le lot le plus ancien.
+  Future<Ticket?> prochainTicketForfait(int forfaitId,
+      {int? lotPrefereId}) async {
+    if (lotPrefereId != null) {
+      final r = await db.rawQuery('''
+        SELECT t.* FROM tickets t
+        WHERE t.lot_id = ? AND t.forfait_id = ? AND t.vendu = 0 AND t.defectueux = 0
+        ORDER BY t.position ASC, t.id ASC LIMIT 1''', [lotPrefereId, forfaitId]);
+      if (r.isNotEmpty) return Ticket.fromMap(r.first);
+    }
+    final r = await db.rawQuery('''
+      SELECT t.* FROM tickets t JOIN lots l ON l.id = t.lot_id
+      WHERE t.forfait_id = ? AND t.vendu = 0 AND t.defectueux = 0
+      ORDER BY l.cree_le ASC, l.id ASC, t.position ASC, t.id ASC LIMIT 1''',
+        [forfaitId]);
+    return r.isEmpty ? null : Ticket.fromMap(r.first);
+  }
+
+  /// Dernier ticket vendu, tous forfaits confondus (pour « Annuler »).
+  Future<Ticket?> dernierVenduGlobal() async {
+    final r = await db.query('tickets',
+        where: 'vendu = 1', orderBy: 'vendu_le DESC, id DESC', limit: 1);
+    return r.isEmpty ? null : Ticket.fromMap(r.first);
+  }
+
+  /// Annule la dernière vente, tous forfaits confondus.
+  Future<Ticket?> annulerDerniereVenteGlobale() async {
+    final t = await dernierVenduGlobal();
+    if (t == null) return null;
+    await remettreEnStock(t.id);
+    return t;
+  }
+
+  /// Tickets vendus et argent encaissé entre [debut] (inclus) et [fin]
+  /// (exclue), tous forfaits confondus.
+  Future<({int vendus, int montant})> statsPeriode(
+      DateTime debut, DateTime fin) async {
+    final r = await db.rawQuery('''
+      SELECT COUNT(*) AS vendus,
+             COALESCE(SUM(CASE WHEN ${encaisse()} THEN prix ELSE 0 END), 0) AS montant
+      FROM tickets WHERE vendu = 1 AND vendu_le >= ? AND vendu_le < ?''', [
+      debut.millisecondsSinceEpoch,
+      fin.millisecondsSinceEpoch,
+    ]);
+    return (
+      vendus: (r.first['vendus'] as int?) ?? 0,
+      montant: (r.first['montant'] as int?) ?? 0,
+    );
+  }
+
   Future<Ticket?> dernierVendu(int lotId) async {
     final r = await db.query('tickets',
         where: 'lot_id = ? AND vendu = 1',

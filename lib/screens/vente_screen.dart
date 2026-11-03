@@ -27,17 +27,19 @@ class VenteScreen extends StatefulWidget {
 }
 
 class _VenteScreenState extends State<VenteScreen> {
-  List<Lot> _lots = [];
-  Lot? _lot;
+  // Les forfaits (profils de ticket) qui ont des tickets, et celui qu'on vend.
+  List<ProfilStock> _profils = [];
+  ProfilStock? _profil;
   Ticket? _ticket;
+  Lot? _lotTicket; // lot du ticket affiché (lien de connexion pour le partage)
   Uint8List? _image;
-  LotStats? _stats;
-  Ticket? _dernier;
+  Ticket? _dernier; // dernière vente, tous forfaits confondus
+  ({int vendus, int montant}) _jour = (vendus: 0, montant: 0);
+  int _seuil = seuilStockParDefaut;
   List<Vendeur> _vendeurs = [];
   int? _vendeurActifId;
 
-  // Alertes : stock bas (nombre de tickets restants) et sauvegarde.
-  int? _alerteStock;
+  // Alerte de sauvegarde (l'alerte de stock bas se calcule à l'affichage).
   String? _alerteSauvegarde;
   bool _rappelMasque = false;
   bool _chargement = true;
@@ -62,19 +64,8 @@ class _VenteScreenState extends State<VenteScreen> {
     super.dispose();
   }
 
-  /// Nombre de tickets restants si le stock total est bas, sinon null.
-  /// Le seuil se règle dans Réglages (20 par défaut, 0 = pas d'alerte).
-  Future<int?> _calculerAlerteStock(List<Lot> lots) async {
-    final seuil = int.tryParse(
-            await appState.repo.getSetting(cleSeuilStock) ?? '') ??
-        seuilStockParDefaut;
-    if (seuil <= 0) return null;
-    final restants = lots.fold<int>(0, (a, l) => a + l.restants);
-    return (restants > 0 && restants <= seuil) ? restants : null;
-  }
-
   /// Message d'alerte sur la sauvegarde, ou null si tout va bien.
-  Future<String?> _calculerAlerteSauvegarde(List<Lot> lots) async {
+  Future<String?> _calculerAlerteSauvegarde(bool aDesVentes) async {
     final repo = appState.repo;
     final driveActif = await repo.getSetting(DriveBackup.cleActif) == '1';
     if (driveActif) {
@@ -83,7 +74,7 @@ class _VenteScreenState extends State<VenteScreen> {
           ? null
           : 'La sauvegarde Google Drive a échoué : $erreur';
     }
-    if (!lots.any((l) => l.vendus > 0)) return null;
+    if (!aDesVentes) return null;
     final derniere =
         int.tryParse(await repo.getSetting('derniere_sauvegarde') ?? '');
     if (derniere == null) return 'Vos ventes ne sont pas sauvegardées.';
@@ -94,6 +85,19 @@ class _VenteScreenState extends State<VenteScreen> {
         ? 'Dernière sauvegarde il y a $jours jours : vos ventes récentes ne sont pas protégées.'
         : null;
   }
+
+  /// Étiquette courte d'une pastille : « 1 h », « 1 semaine »… Si deux forfaits
+  /// ont la même durée, on affiche leur nom pour les distinguer.
+  String _etiquette(ProfilStock p) {
+    final memeDuree = _profils
+        .where((x) => x.forfait.dureeMinutes == p.forfait.dureeMinutes)
+        .length;
+    return memeDuree > 1 ? p.forfait.nom : libelleDuree(p.forfait.dureeMinutes);
+  }
+
+  /// Vrai si le stock de ce forfait est bas (mais pas vide).
+  bool _stockBas(ProfilStock p) =>
+      _seuil > 0 && p.restants > 0 && p.restants <= _seuil;
 
   Vendeur? get _vendeurActif {
     for (final v in _vendeurs) {
@@ -167,48 +171,54 @@ class _VenteScreenState extends State<VenteScreen> {
 
   Future<void> _charger() async {
     final repo = appState.repo;
-    final lots = await repo.lots();
-    Lot? lot;
-    final id = appState.lotActifId;
-    if (id != null) {
-      for (final l in lots) {
-        if (l.id == id) lot = l;
-      }
+    final premier = _chargement;
+    final profils = await repo.profils();
+
+    // Forfait affiché : le dernier choisi. À l'ouverture, s'il n'a plus de
+    // tickets (ou n'existe plus), on prend le premier qui en a. En cours de
+    // journée on ne change pas tout seul : on affiche « plus de tickets ».
+    ProfilStock? profil;
+    for (final p in profils) {
+      if (p.forfait.id == appState.forfaitActifId) profil = p;
     }
-    if (lot == null) {
-      // Premier lot non terminé, en commençant par le plus ancien.
-      for (final l in lots.reversed) {
-        if (l.restants > 0) {
-          lot = l;
-          break;
-        }
-      }
+    if (profil == null || (premier && profil.restants == 0)) {
+      profil = profils.where((p) => p.restants > 0).firstOrNull ??
+          profils.firstOrNull;
     }
+
     Ticket? ticket;
+    Lot? lotTicket;
     Uint8List? image;
-    LotStats? stats;
-    Ticket? dernier;
+    if (profil != null) {
+      ticket = await repo.prochainTicketForfait(profil.forfait.id,
+          lotPrefereId: appState.lotActifId);
+      if (ticket != null) {
+        image = await repo.imageTicket(ticket.id);
+        lotTicket = await repo.lot(ticket.lotId);
+      }
+    }
+    final dernier = await repo.dernierVenduGlobal();
+    final auj = debutJour(DateTime.now());
+    final jour = await repo.statsPeriode(
+        auj, DateTime(auj.year, auj.month, auj.day + 1));
+    final seuil =
+        int.tryParse(await repo.getSetting(cleSeuilStock) ?? '') ??
+            seuilStockParDefaut;
     final vendeurs = await repo.vendeurs(seulementActifs: true);
     final vendeurActif = await repo.vendeurActifId();
-    final alerteStock = await _calculerAlerteStock(lots);
-    final alerteSauvegarde = await _calculerAlerteSauvegarde(lots);
-    if (lot != null) {
-      ticket = await repo.prochainTicket(lot.id);
-      if (ticket != null) image = await repo.imageTicket(ticket.id);
-      stats = await repo.stats(lot.id);
-      dernier = await repo.dernierVendu(lot.id);
-    }
+    final alerteSauvegarde = await _calculerAlerteSauvegarde(dernier != null);
     if (!mounted) return;
     setState(() {
-      _lots = lots;
-      _lot = lot;
+      _profils = profils;
+      _profil = profil;
       _ticket = ticket;
+      _lotTicket = lotTicket;
       _image = image;
-      _stats = stats;
       _dernier = dernier;
+      _jour = jour;
+      _seuil = seuil;
       _vendeurs = vendeurs;
       _vendeurActifId = vendeurActif;
-      _alerteStock = alerteStock;
       _alerteSauvegarde = alerteSauvegarde;
       _chargement = false;
     });
@@ -275,10 +285,15 @@ class _VenteScreenState extends State<VenteScreen> {
   }
 
   Future<void> _annuler({bool confirmer = true}) async {
-    final lot = _lot;
-    if (lot == null || _occupe) return;
-    final dernier = await appState.repo.dernierVendu(lot.id);
+    if (_occupe) return;
+    // La dernière vente, quel que soit le forfait : une erreur de forfait
+    // peut ainsi s'annuler sans changer d'écran.
+    final dernier = await appState.repo.dernierVenduGlobal();
     if (dernier == null) return;
+    final forfait = _profils
+        .where((p) => p.forfait.id == dernier.forfaitId)
+        .map((p) => _etiquette(p))
+        .firstOrNull;
     if (confirmer) {
       if (!mounted) return;
       final ok = await showDialog<bool>(
@@ -286,7 +301,7 @@ class _VenteScreenState extends State<VenteScreen> {
         builder: (ctx) => AlertDialog(
           title: const Text('Annuler la dernière vente ?'),
           content: Text(
-              'Le ticket ${dernier.code} sera remis en vente et son montant retiré du total.'),
+              'Le ticket ${dernier.code}${forfait == null ? '' : ' ($forfait)'} sera remis en vente et son montant retiré du total.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -299,31 +314,28 @@ class _VenteScreenState extends State<VenteScreen> {
       );
       if (ok != true) return;
     }
-    await appState.repo.annulerDerniereVente(lot.id);
+    await appState.repo.annulerDerniereVenteGlobale();
     appState.changed();
     if (!mounted) return;
-    _afficherBandeau('Ticket ${dernier.code} remis en vente', secondes: 3);
+    _afficherBandeau(
+        'Ticket ${dernier.code}${forfait == null ? '' : ' ($forfait)'} remis en vente',
+        secondes: 3);
   }
 
   Future<void> _partager() async {
     final t = _ticket;
-    final lot = _lot;
-    if (t == null || lot == null) return;
-    final url = lot.loginUrl ??
+    final profil = _profil;
+    if (t == null || profil == null) return;
+    final url = _lotTicket?.loginUrl ??
         (await appState.repo.getSetting('login_url')) ??
         'http://mtandao.wifi';
     final lignes = <String>[
-      'Wi-Fi MTANDAO - ticket ${lot.forfaitNom}',
+      'Wi-Fi MTANDAO - ticket ${profil.forfait.nom}',
       if (t.aMotDePasseDistinct) 'Utilisateur : ${t.code}' else 'Code : ${t.code}',
       if (t.aMotDePasseDistinct) 'Mot de passe : ${t.motDePasse}',
       'Connexion : $url',
     ];
     await Share.share(lignes.join('\n'));
-  }
-
-  Future<void> _changerLot(int? id) async {
-    if (id == null) return;
-    await appState.definirLotActif(id);
   }
 
   @override
@@ -342,7 +354,7 @@ class _VenteScreenState extends State<VenteScreen> {
       ),
       body: _chargement
           ? const Center(child: CircularProgressIndicator())
-          : _lot == null
+          : _profil == null
               ? _etatVide(context)
               : _contenu(context),
     );
@@ -385,13 +397,48 @@ class _VenteScreenState extends State<VenteScreen> {
   Future<void> _saisirCodes() => Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const SaisieManuelleScreen()));
 
+  /// Pastilles de forfait : un appui pour passer de 1 h à 24 h, etc.
+  Widget _pastilles(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (final p in _profils)
+            ChoiceChip(
+              selected: p.forfait.id == _profil?.forfait.id,
+              onSelected: (_) => appState.definirForfaitActif(p.forfait.id),
+              showCheckmark: false,
+              label: Text(
+                '${_etiquette(p)}  ${p.restants}',
+                semanticsLabel:
+                    '${_etiquette(p)}, ${p.restants == 0 ? 'plus de tickets' : '${p.restants} restants'}',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 15,
+                  decoration:
+                      p.restants == 0 ? TextDecoration.lineThrough : null,
+                  color: p.forfait.id == _profil?.forfait.id
+                      ? null
+                      : p.restants == 0
+                          ? cs.outline
+                          : _stockBas(p)
+                              ? cs.error
+                              : null,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _contenu(BuildContext context) {
-    final lot = _lot!;
-    final stats = _stats ?? const LotStats(total: 0, vendus: 0, montant: 0);
+    final profil = _profil!;
     final cs = Theme.of(context).colorScheme;
     final termine = _ticket == null;
-
-    final lotsChoix = _lots.where((l) => l.restants > 0 || l.id == lot.id).toList();
 
     return Column(
       children: [
@@ -418,68 +465,54 @@ class _VenteScreenState extends State<VenteScreen> {
                     onPressed: _choisirVendeur,
                   ),
                 ),
-              if (lotsChoix.length > 1)
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 48),
-                  child: DropdownButton<int>(
-                    value: lot.id,
-                    isExpanded: true,
-                    underline: const SizedBox.shrink(),
-                    items: [
-                      for (final l in lotsChoix)
-                        DropdownMenuItem(
-                          value: l.id,
-                          child: Text(
-                            '${l.nom}  ·  ${l.restants} restants',
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                    ],
-                    onChanged: _changerLot,
-                  ),
-                )
-              else
-                Text(lot.nom,
-                    style: Theme.of(context).textTheme.labelLarge,
-                    overflow: TextOverflow.ellipsis),
+              // Un seul forfait : rien à choisir, l'écran reste aussi simple qu'avant.
+              if (_profils.length > 1) _pastilles(context),
               const SizedBox(height: 4),
               Row(
                 children: [
-                  _stat(context, '${stats.vendus}', 'déjà vendus', cs.primary),
-                  _stat(context, '${stats.restants}', 'restants', cs.onSurface,
+                  _stat(context, '${profil.vendus}', 'déjà vendus', cs.primary),
+                  _stat(context, '${profil.restants}', 'restants', cs.onSurface,
                       grand: true),
-                  _stat(context, cdf(stats.montant), 'encaissé', _vert(context)),
+                  _stat(context, cdf(profil.montant), 'encaissé', _vert(context)),
                 ],
               ),
               const SizedBox(height: 8),
               BarreProgression(
-                valeur: stats.total == 0 ? 0 : stats.vendus / stats.total,
+                valeur: profil.total == 0 ? 0 : profil.vendus / profil.total,
                 phrase:
-                    'Progression du lot : ${stats.vendus} tickets vendus sur ${stats.total}',
+                    'Progression de ${profil.forfait.nom} : ${profil.vendus} tickets vendus sur ${profil.total}',
+              ),
+              // Total de la journée, tous forfaits confondus.
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  'Aujourd\'hui, tous forfaits : ${_jour.vendus} ticket${_jour.vendus > 1 ? 's' : ''}  ·  ${cdf(_jour.montant)}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: cs.onSurfaceVariant),
+                ),
               ),
               if (_dernier != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Dernier vendu : ${_dernier!.code}'
-                    '${_dernier!.venduLe != null ? '  ·  ${fmtHeure(_dernier!.venduLe!)}' : ''}',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: cs.onSurfaceVariant),
-                  ),
+                Text(
+                  'Dernier vendu : ${_dernier!.code}'
+                  '${_dernier!.venduLe != null ? '  ·  ${fmtHeure(_dernier!.venduLe!)}' : ''}',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: cs.onSurfaceVariant),
                 ),
             ],
           ),
         ),
 
         // ------------------------------------------------------------- alertes
-        if (_alerteStock != null)
+        if (_stockBas(profil))
           _carteAlerte(
             context,
             icone: Icons.inventory_2_outlined,
             texte:
-                'Plus que $_alerteStock ticket${_alerteStock! > 1 ? 's' : ''} en stock. Pensez à importer un nouveau PDF.',
+                'Plus que ${profil.restants} ticket${profil.restants > 1 ? 's' : ''} « ${profil.forfait.nom} ». Pensez à importer un nouveau PDF.',
             action: 'Importer',
             surAction: () => ImportFlow.demarrer(context),
           ),
@@ -505,13 +538,32 @@ class _VenteScreenState extends State<VenteScreen> {
         // ---------------------------------------------------------- le ticket
         Expanded(
           child: termine
-              ? _lotTermine(context, lot)
+              ? _profilEpuise(context, profil)
               : SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                  child: TicketCard(
-                    ticket: _ticket!,
-                    image: _image,
-                    forfaitNom: lot.forfaitNom,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Column(
+                    children: [
+                      // Forfait et prix en grand : on ne vend pas le mauvais ticket.
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          '${profil.forfait.nom.toUpperCase()}  ·  ${cdf(_ticket!.prix)}',
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: cs.primary),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      TicketCard(
+                        ticket: _ticket!,
+                        image: _image,
+                        forfaitNom: profil.forfait.nom,
+                      ),
+                    ],
                   ),
                 ),
         ),
@@ -679,33 +731,31 @@ class _VenteScreenState extends State<VenteScreen> {
     );
   }
 
-  Widget _lotTermine(BuildContext context, Lot lot) {
-    final suivant = _lots.where((l) => l.id != lot.id && l.restants > 0).toList();
+  Widget _profilEpuise(BuildContext context, ProfilStock profil) {
+    final autres = _profils.where((p) => p.restants > 0).toList();
     return Center(
-      child: Padding(
+      child: SingleChildScrollView(
         padding: const EdgeInsets.all(28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.task_alt_rounded,
-                size: 72, color: _vert(context)),
+            Icon(Icons.task_alt_rounded, size: 72, color: _vert(context)),
             const SizedBox(height: 12),
-            Text('Lot terminé', style: Theme.of(context).textTheme.headlineSmall),
+            Text('Plus de tickets',
+                style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 6),
             Text(
-                lot.defectueux > 0
-                    ? 'Plus aucun ticket à vendre dans « ${lot.nom} » (${lot.defectueux} défectueux).'
-                    : 'Tous les tickets de « ${lot.nom} » sont vendus.',
+                profil.defectueux > 0
+                    ? 'Plus aucun ticket à vendre pour « ${profil.forfait.nom} » (${profil.defectueux} défectueux).'
+                    : 'Tous les tickets « ${profil.forfait.nom} » sont vendus.',
                 textAlign: TextAlign.center),
+            if (autres.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              const Text('Choisissez un autre forfait ci-dessus.',
+                  textAlign: TextAlign.center),
+            ],
             const SizedBox(height: 20),
-            if (suivant.isNotEmpty)
-              FilledButton.icon(
-                onPressed: () => appState.definirLotActif(suivant.last.id),
-                icon: const Icon(Icons.skip_next_rounded),
-                label: Text('Passer à « ${suivant.last.nom} »'),
-              ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
+            FilledButton.icon(
               onPressed: () => ImportFlow.demarrer(context),
               icon: const Icon(Icons.picture_as_pdf_rounded),
               label: const Text('Importer un nouveau PDF'),
@@ -718,7 +768,7 @@ class _VenteScreenState extends State<VenteScreen> {
             ),
             const SizedBox(height: 8),
             TextButton.icon(
-              onPressed: () => _annuler(),
+              onPressed: _dernier == null ? null : () => _annuler(),
               icon: const Icon(Icons.undo_rounded),
               label: const Text('Annuler la dernière vente'),
             ),
