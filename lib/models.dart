@@ -99,7 +99,7 @@ class Lot {
   final String nom;
   final int forfaitId;
   final String forfaitNom;
-  final String source; // 'mikhmon' | 'texte'
+  final String source; // 'mikhmon' | 'texte' | 'excel'
   final String? fichier;
   final String? loginUrl;
   final DateTime creeLe;

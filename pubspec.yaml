@@ -27,6 +27,7 @@ dependencies:
   googleapis: ^17.0.0
   workmanager: ^0.10.10
   pdf: ^3.11.0
+  archive: ^4.0.0
 
 dev_dependencies:
   flutter_test:

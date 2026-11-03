@@ -6,6 +6,7 @@ import 'package:zxing2/qrcode.dart';
 import 'models.dart';
 import 'planche_qr.dart';
 import 'text_parser.dart';
+import 'xlsx_import.dart';
 
 class ImportException implements Exception {
   ImportException(this.message);
@@ -23,9 +24,10 @@ class ParsedPdf {
     this.dureeMinutes,
     this.loginUrl,
     this.prix,
+    this.ignores = 0,
   });
 
-  /// 'mikhmon' (tickets en image avec QR) ou 'texte' (Code / Durée).
+  /// 'mikhmon' (tickets en image avec QR), 'texte' (Code / Durée) ou 'excel'.
   final String source;
 
   /// Tickets dans l'ordre du PDF. Une case illisible vaut null (voir [echecs]).
@@ -40,6 +42,9 @@ class ParsedPdf {
   /// Prix lu dans le PDF quand il y est imprimé en texte (modèle « Code /
   /// Durée »). Les planches Mikhmon sont des images : leur prix n'est pas lu.
   final int? prix;
+
+  /// Tickets du fichier laissés de côté (tableur : déjà utilisés).
+  final int ignores;
 }
 
 typedef Progression = void Function(double fraction, String message);
@@ -76,6 +81,9 @@ const double _dpiRetentative = 400;
 class PdfImporter {
   /// Lit un PDF de tickets (détection automatique du modèle).
   static Future<ParsedPdf> lire(String chemin, Progression progression) async {
+    if (chemin.toLowerCase().endsWith('.xlsx')) {
+      return XlsxImporter.lire(chemin, progression);
+    }
     PdfDocument doc;
     try {
       doc = await PdfDocument.openFile(chemin);

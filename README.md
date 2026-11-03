@@ -43,8 +43,9 @@ Le prix est enregistré sur chaque ticket à l'import : changer un tarif plus ta
    Rendu à 300 dpi, deuxième essai à 400 dpi pour les QR difficiles,
    saisie manuelle en dernier recours.
 2. **« Tickets Wi-Fi »** en texte simple : `Code : 461232` / `Durée : 1jour(s)`.
+3. **Tableur Excel (.xlsx)** : export « Voucher » (colonnes ID de coupon, Statut, Durée). Les tickets déjà utilisés sont ignorés ; le prix se saisit à l'import.
 
-La mise en page Mikhmon est lue par position (valeurs mesurées sur le PDF « 24h 200 tickets »,
+Le modèle Mikhmon paysage 4 × 4 est lu en priorité par position (valeurs mesurées sur le PDF « 24h 200 tickets »,
 dans `lib/pdf_import.dart`). Si une autre planche a une grille différente, il suffit
 d'ajuster les constantes `_caseX0`, `_casePasX`, `_caseY0`, `_casePasY`… en haut de ce fichier.
 

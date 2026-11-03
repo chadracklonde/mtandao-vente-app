@@ -50,6 +50,13 @@ class TextTicketParser {
     return null;
   }
 
+  /// Durée écrite dans une cellule : « 1jour(s) », « 2 heures », « 1 mois »…
+  static int? dureeDe(String texte) {
+    final m = RegExp(r'(\d+)\s*([A-Za-zéû]+)').firstMatch(texte);
+    if (m == null) return null;
+    return _minutes(int.parse(m.group(1)!), m.group(2)!);
+  }
+
   /// Extrait les tickets d'un texte (une ou plusieurs pages).
   static List<TexteTicket> parse(String texte) {
     final codes = _code.allMatches(texte).map((m) => m.group(1)!).toList();
