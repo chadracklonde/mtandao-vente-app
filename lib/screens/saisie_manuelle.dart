@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../codes_manuels.dart';
 import '../format.dart';
@@ -22,20 +23,27 @@ class _SaisieManuelleScreenState extends State<SaisieManuelleScreen> {
   final _codes = TextEditingController();
   late final TextEditingController _nom = TextEditingController(
       text: 'Saisie du ${fmtJourCourt(DateTime.now())}');
+  final _prix = TextEditingController();
   List<Forfait> _forfaits = [];
   Forfait? _forfait;
   bool _occupe = false;
+  bool _prixModifie = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.lot == null) _chargerForfaits();
+    if (widget.lot == null) {
+      _chargerForfaits();
+    } else {
+      _chargerPrixDuLot();
+    }
   }
 
   @override
   void dispose() {
     _codes.dispose();
     _nom.dispose();
+    _prix.dispose();
     super.dispose();
   }
 
@@ -45,20 +53,33 @@ class _SaisieManuelleScreenState extends State<SaisieManuelleScreen> {
     setState(() {
       _forfaits = f;
       _forfait = f.isEmpty ? null : f.first;
+      if (_forfait != null) _prix.text = '${_forfait!.prix}';
     });
   }
+
+  /// Ajout à un lot : on propose le prix des tickets déjà là.
+  Future<void> _chargerPrixDuLot() async {
+    final prix = await appState.repo.prixDuLot(widget.lot!.id);
+    if (!mounted || prix == null) return;
+    setState(() => _prix.text = '$prix');
+  }
+
+  int? get _prixSaisi => int.tryParse(_prix.text.trim());
 
   CodesSaisis get _lecture => CodesManuels.lire(_codes.text);
 
   Future<void> _enregistrer() async {
     final lecture = _lecture;
     if (lecture.tickets.isEmpty || _occupe) return;
+    // Un champ prix vide : le prix du forfait (ou du lot) est utilisé.
+    final prix = _prixSaisi;
     setState(() => _occupe = true);
     try {
       final repo = appState.repo;
       final ImportResult r;
       if (widget.lot != null) {
-        r = await repo.ajouterTickets(widget.lot!.id, lecture.tickets);
+        r = await repo.ajouterTickets(widget.lot!.id, lecture.tickets,
+            prix: prix);
       } else {
         final f = _forfait;
         if (f == null) return;
@@ -70,6 +91,7 @@ class _SaisieManuelleScreenState extends State<SaisieManuelleScreen> {
           forfait: f,
           source: 'manuel',
           tickets: lecture.tickets,
+          prix: prix,
         );
         if (r.lotId != null) await appState.definirLotActif(r.lotId);
       }
@@ -128,6 +150,7 @@ class _SaisieManuelleScreenState extends State<SaisieManuelleScreen> {
               ],
               onChanged: (id) => setState(() {
                 _forfait = _forfaits.firstWhere((f) => f.id == id);
+                if (!_prixModifie) _prix.text = '${_forfait!.prix}';
               }),
             ),
             const SizedBox(height: 12),
@@ -139,6 +162,21 @@ class _SaisieManuelleScreenState extends State<SaisieManuelleScreen> {
             ),
             const SizedBox(height: 12),
           ],
+          TextField(
+            controller: _prix,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            onChanged: (_) => setState(() => _prixModifie = true),
+            decoration: InputDecoration(
+              labelText: 'Prix de chaque ticket (CDF)',
+              helperText: ajout
+                  ? 'Prix des tickets déjà dans ce lot. Vous pouvez le modifier pour ces nouveaux tickets.'
+                  : 'Prix du forfait. Vous pouvez le modifier pour ce lot.',
+              helperMaxLines: 2,
+              border: const OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
           TextField(
             controller: _codes,
             minLines: 6,

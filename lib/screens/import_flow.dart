@@ -1,7 +1,6 @@
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 
 import '../format.dart';
@@ -126,10 +125,10 @@ class ImportFlow {
     }
     if (!context.mounted) return;
     final nomParDefaut = p.basenameWithoutExtension(chemin);
-    final confirmation = await showDialog<_Confirmation>(
+    final confirmation = await showDialog<ConfirmationImport>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _DialogueConfirmation(
+      builder: (_) => DialogueConfirmationImport(
         nomParDefaut: nomParDefaut,
         forfaits: forfaits,
         nombre: tickets.length,
@@ -137,6 +136,7 @@ class ImportFlow {
         ignorees: ignorees,
         dureeMinutes: parsed.dureeMinutes,
         source: parsed.source,
+        prixDetecte: parsed.prix,
       ),
     );
     if (confirmation == null) return;
@@ -149,7 +149,14 @@ class ImportFlow {
       fichier: p.basename(chemin),
       loginUrl: parsed.loginUrl,
       tickets: tickets,
+      prix: confirmation.prix,
     );
+    // « Retenir ce prix » : le forfait prend ce prix pour les prochains imports.
+    if (confirmation.retenirPrix &&
+        confirmation.prix != confirmation.forfait.prix) {
+      await repo.modifierForfait(confirmation.forfait.id,
+          prix: confirmation.prix);
+    }
     if (resultat.lotId != null) {
       final actif = appState.lotActifId;
       var changer = actif == null;
@@ -216,10 +223,15 @@ class ImportFlow {
   }
 }
 
-class _Confirmation {
-  _Confirmation(this.nom, this.forfait);
+/// Ce que l'utilisateur a validé avant l'import : nom du lot, forfait, prix
+/// de chaque ticket, et s'il faut retenir ce prix pour le forfait.
+class ConfirmationImport {
+  ConfirmationImport(this.nom, this.forfait, this.prix,
+      {this.retenirPrix = false});
   final String nom;
   final Forfait forfait;
+  final int prix;
+  final bool retenirPrix;
 }
 
 class _DialogueProgression extends StatelessWidget {
@@ -249,8 +261,9 @@ class _DialogueProgression extends StatelessWidget {
   }
 }
 
-class _DialogueConfirmation extends StatefulWidget {
-  const _DialogueConfirmation({
+class DialogueConfirmationImport extends StatefulWidget {
+  const DialogueConfirmationImport({
+    super.key,
     required this.nomParDefaut,
     required this.forfaits,
     required this.nombre,
@@ -258,8 +271,11 @@ class _DialogueConfirmation extends StatefulWidget {
     required this.ignorees,
     required this.dureeMinutes,
     required this.source,
+    this.prixDetecte,
   });
 
+  /// Prix lu dans le PDF, s'il y en avait un d'imprimé en texte.
+  final int? prixDetecte;
   final String nomParDefaut;
   final List<Forfait> forfaits;
   final int nombre;
@@ -269,17 +285,21 @@ class _DialogueConfirmation extends StatefulWidget {
   final String source;
 
   @override
-  State<_DialogueConfirmation> createState() => _DialogueConfirmationState();
+  State<DialogueConfirmationImport> createState() => DialogueConfirmationImportImportState();
 }
 
-class _DialogueConfirmationState extends State<_DialogueConfirmation> {
+class DialogueConfirmationImportImportState extends State<DialogueConfirmationImport> {
   late final TextEditingController _nom;
+  late final TextEditingController _prix;
   Forfait? _forfait;
+  bool _prixModifie = false;
+  bool _retenir = false;
 
   @override
   void initState() {
     super.initState();
     _nom = TextEditingController(text: widget.nomParDefaut);
+    _prix = TextEditingController();
     final duree = widget.dureeMinutes;
     if (duree != null) {
       for (final f in widget.forfaits) {
@@ -287,13 +307,18 @@ class _DialogueConfirmationState extends State<_DialogueConfirmation> {
       }
     }
     _forfait ??= widget.forfaits.isNotEmpty ? widget.forfaits.first : null;
+    // Prix proposé : celui du PDF, sinon celui du forfait.
+    _prix.text = '${widget.prixDetecte ?? _forfait?.prix ?? ''}';
   }
 
   @override
   void dispose() {
     _nom.dispose();
+    _prix.dispose();
     super.dispose();
   }
+
+  int? get _prixSaisi => int.tryParse(_prix.text.trim());
 
   @override
   Widget build(BuildContext context) {
@@ -347,7 +372,43 @@ class _DialogueConfirmationState extends State<_DialogueConfirmation> {
                 ],
                 onChanged: (id) => setState(() {
                   _forfait = widget.forfaits.firstWhere((f) => f.id == id);
+                  // Sans prix lu dans le PDF ni modification, on suit le forfait.
+                  if (!_prixModifie && widget.prixDetecte == null) {
+                    _prix.text = '${_forfait!.prix}';
+                  }
                 }),
+              ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _prix,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              onChanged: (_) => setState(() => _prixModifie = true),
+              decoration: InputDecoration(
+                labelText: 'Prix de chaque ticket (CDF)',
+                helperText: widget.prixDetecte != null
+                    ? 'Prix lu dans le PDF. Vous pouvez le modifier.'
+                    : 'Prix non lu dans ce PDF : vérifiez-le ou saisissez-le. Proposé : le prix du forfait.',
+                helperMaxLines: 3,
+                // Sans prix lu, l'aide ressort pour qu'on ne l'importe pas sans y penser.
+                helperStyle: widget.prixDetecte == null
+                    ? TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                        fontWeight: FontWeight.w600)
+                    : null,
+                border: const OutlineInputBorder(),
+              ),
+            ),
+            if (_forfait != null &&
+                _prixSaisi != null &&
+                _prixSaisi != _forfait!.prix)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _retenir,
+                onChanged: (v) => setState(() => _retenir = v ?? false),
+                title: Text(
+                    'Retenir ce prix pour « ${_forfait!.nom} » (actuellement ${cdf(_forfait!.prix)})'),
               ),
             const SizedBox(height: 6),
             Text(
@@ -366,10 +427,16 @@ class _DialogueConfirmationState extends State<_DialogueConfirmation> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Annuler')),
         FilledButton(
-          onPressed: _forfait == null || _nom.text.trim().isEmpty || aImporter <= 0
+          onPressed: _forfait == null ||
+                  _nom.text.trim().isEmpty ||
+                  aImporter <= 0 ||
+                  _prixSaisi == null
               ? null
               : () => Navigator.pop(
-                  context, _Confirmation(_nom.text.trim(), _forfait!)),
+                  context,
+                  ConfirmationImport(_nom.text.trim(), _forfait!, _prixSaisi!,
+                      retenirPrix: _retenir &&
+                          _prixSaisi != _forfait!.prix)),
           child: const Text('Importer'),
         ),
       ],

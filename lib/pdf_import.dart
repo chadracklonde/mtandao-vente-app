@@ -21,6 +21,7 @@ class ParsedPdf {
     required this.echecs,
     this.dureeMinutes,
     this.loginUrl,
+    this.prix,
   });
 
   /// 'mikhmon' (tickets en image avec QR) ou 'texte' (Code / Durée).
@@ -34,6 +35,10 @@ class ParsedPdf {
 
   final int? dureeMinutes;
   final String? loginUrl;
+
+  /// Prix lu dans le PDF quand il y est imprimé en texte (modèle « Code /
+  /// Durée »). Les planches Mikhmon sont des images : leur prix n'est pas lu.
+  final int? prix;
 }
 
 typedef Progression = void Function(double fraction, String message);
@@ -134,6 +139,7 @@ class PdfImporter {
       slots: slots,
       echecs: {},
       dureeMinutes: TextTicketParser.dureeCommune(tous),
+      prix: TextTicketParser.prixCommun(tous),
     );
   }
 

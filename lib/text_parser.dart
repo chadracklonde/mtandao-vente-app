@@ -3,9 +3,12 @@
 ///   Durée : 1jour(s)
 /// (Fonctions pures, testables sans Flutter.)
 class TexteTicket {
-  const TexteTicket(this.code, this.dureeMinutes);
+  const TexteTicket(this.code, this.dureeMinutes, {this.prix});
   final String code;
   final int? dureeMinutes;
+
+  /// Prix lu dans le texte (en entier, sans monnaie), s'il y en a un.
+  final int? prix;
 }
 
 class TextTicketParser {
@@ -13,6 +16,26 @@ class TextTicketParser {
       RegExp(r'Code\s*:\s*([0-9A-Za-z_\-]+?)(?=\s|Dur|Code|$)');
   static final RegExp _duree = RegExp(r'Dur\S{1,3}\s*:\s*(\d+)\s*([A-Za-z]+)');
   static final RegExp _dureeEntete = RegExp(r'Dur\S{1,3}\s*:');
+
+  /// « Prix : 1 000 CDF », « Price: 500 », « Tarif : 2.500 FC », « Montant : 1000 ».
+  static final RegExp _prix = RegExp(
+      r'(?:Prix|Price|Tarif|Montant)\s*:\s*([0-9][0-9 \u00a0\u202f.,]*[0-9]|[0-9])',
+      caseSensitive: false);
+
+  /// Convertit « 1 000 », « 1.000 », « 1,000 », « 1000 » ou « 1500,50 » en entier
+  /// (les séparateurs de milliers sont ignorés ; une partie décimale de 1 ou
+  /// 2 chiffres est arrondie). Retourne null si ce n'est pas un nombre.
+  static int? entierDe(String texte) {
+    final t = texte.trim().replaceAll(RegExp(r'[ \u00a0\u202f]'), '');
+    if (t.isEmpty) return null;
+    final decimal = RegExp(r'^(\d+)[.,](\d{1,2})$').firstMatch(t);
+    if (decimal != null) {
+      return double.parse('${decimal.group(1)}.${decimal.group(2)}').round();
+    }
+    final chiffres = t.replaceAll(RegExp(r'[.,]'), '');
+    if (!RegExp(r'^\d+$').hasMatch(chiffres)) return null;
+    return int.tryParse(chiffres);
+  }
 
   /// Vrai si le texte ressemble au modèle « Code : … / Durée : … ».
   static bool ressembleAuModele(String texte) =>
@@ -49,12 +72,38 @@ class TextTicketParser {
       }
     });
 
+    // Prix : un par ticket si les nombres concordent, sinon le prix le plus
+    // fréquent, sinon aucun.
+    final prix = [
+      for (final m in _prix.allMatches(texte)) entierDe(m.group(1)!),
+    ].whereType<int>().toList();
+    int? prixCommun;
+    final comptePrix = <int, int>{};
+    for (final p in prix) {
+      comptePrix[p] = (comptePrix[p] ?? 0) + 1;
+    }
+    var maxPrix = 0;
+    comptePrix.forEach((k, v) {
+      if (v > maxPrix) {
+        maxPrix = v;
+        prixCommun = k;
+      }
+    });
+
     final memeNombre = codes.length == durees.length;
+    final memePrix = codes.length == prix.length;
     final res = <TexteTicket>[];
     for (var i = 0; i < codes.length; i++) {
-      res.add(TexteTicket(codes[i], memeNombre ? durees[i] : commune));
+      res.add(TexteTicket(codes[i], memeNombre ? durees[i] : commune,
+          prix: memePrix ? prix[i] : prixCommun));
     }
     return res;
+  }
+
+  /// Prix commun à tous les tickets, ou null s'il diffère ou est inconnu.
+  static int? prixCommun(List<TexteTicket> tickets) {
+    final set = tickets.map((t) => t.prix).toSet();
+    return set.length == 1 ? set.first : null;
   }
 
   /// Durée commune à tous les tickets, ou null si elles diffèrent / sont inconnues.

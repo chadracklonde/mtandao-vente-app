@@ -101,6 +101,45 @@ class Repo {
     });
   }
 
+  /// Change le prix des tickets **non vendus** d'un lot. Les tickets déjà
+  /// vendus gardent leur prix : les rapports passés ne changent pas.
+  /// Retourne le nombre de tickets modifiés.
+  Future<int> modifierPrixLot(int lotId, int prix) {
+    _verifierPrix(prix);
+    return db.update('tickets', {'prix': prix},
+        where: 'lot_id = ? AND vendu = 0', whereArgs: [lotId]);
+  }
+
+  /// Change le prix de tous les tickets non vendus d'un forfait (tous lots).
+  Future<int> modifierPrixStockForfait(int forfaitId, int prix) {
+    _verifierPrix(prix);
+    return db.update('tickets', {'prix': prix},
+        where: 'forfait_id = ? AND vendu = 0', whereArgs: [forfaitId]);
+  }
+
+  /// Nombre de tickets non vendus d'un forfait (défectueux compris).
+  Future<int> stockForfait(int forfaitId) async {
+    final r = await db.rawQuery(
+        'SELECT COUNT(*) AS n FROM tickets WHERE forfait_id = ? AND vendu = 0',
+        [forfaitId]);
+    return (r.first['n'] as int?) ?? 0;
+  }
+
+  /// Prix des tickets non vendus d'un lot : le prix commun, ou null s'ils
+  /// diffèrent (ou s'il n'en reste aucun).
+  Future<int?> prixDuLot(int lotId) async {
+    final r = await db.rawQuery(
+        'SELECT MIN(prix) AS mini, MAX(prix) AS maxi FROM tickets WHERE lot_id = ? AND vendu = 0',
+        [lotId]);
+    final mini = r.first['mini'] as int?;
+    final maxi = r.first['maxi'] as int?;
+    return (mini != null && mini == maxi) ? mini : null;
+  }
+
+  static void _verifierPrix(int prix) {
+    if (prix < 0) throw ArgumentError('Le prix ne peut pas être négatif.');
+  }
+
   /// Crédits pas encore payés sur les tickets d'un lot (avant de le supprimer).
   Future<int> aRecevoirDuLot(int lotId) async {
     final r = await db.rawQuery('''
@@ -124,7 +163,11 @@ class Repo {
     String? fichier,
     String? loginUrl,
     required List<ParsedTicket> tickets,
+
+    /// Prix de chaque ticket de ce lot ; par défaut, le prix du forfait.
+    int? prix,
   }) {
+    final prixTicket = prix ?? forfait.prix;
     return db.transaction((txn) async {
       final existants = <String>{};
       final rows = await txn.query('tickets', columns: ['code']);
@@ -156,7 +199,7 @@ class Repo {
           'code': t.code,
           'mot_de_passe': t.motDePasse,
           'qr_texte': t.qrTexte,
-          'prix': forfait.prix,
+          'prix': prixTicket,
           'forfait_id': forfait.id,
           'vendu': 0,
         });
@@ -177,8 +220,8 @@ class Repo {
   /// Ajoute des tickets à un lot existant (saisie manuelle). Les codes déjà
   /// présents dans l'application sont ignorés. Ils prennent le prix du forfait
   /// du lot et se placent après les tickets existants.
-  Future<ImportResult> ajouterTickets(
-      int lotId, List<ParsedTicket> tickets) {
+  Future<ImportResult> ajouterTickets(int lotId, List<ParsedTicket> tickets,
+      {int? prix}) {
     return db.transaction((txn) async {
       final lots = await txn.query('lots', where: 'id = ?', whereArgs: [lotId]);
       if (lots.isEmpty) {
@@ -187,7 +230,17 @@ class Repo {
       final forfaitId = lots.first['forfait_id'] as int;
       final forfaits =
           await txn.query('forfaits', where: 'id = ?', whereArgs: [forfaitId]);
-      final prix = forfaits.first['prix'] as int;
+      // Prix donné, sinon celui des tickets déjà dans le lot, sinon le prix du forfait.
+      final dernier = await txn.query('tickets',
+          columns: ['prix'],
+          where: 'lot_id = ?',
+          whereArgs: [lotId],
+          orderBy: 'position DESC, id DESC',
+          limit: 1);
+      final prixTicket = prix ??
+          (dernier.isNotEmpty
+              ? dernier.first['prix'] as int
+              : forfaits.first['prix'] as int);
 
       final existants = <String>{
         for (final r in await txn.query('tickets', columns: ['code']))
@@ -212,7 +265,7 @@ class Repo {
           'code': t.code,
           'mot_de_passe': t.motDePasse,
           'qr_texte': t.qrTexte,
-          'prix': prix,
+          'prix': prixTicket,
           'forfait_id': forfaitId,
           'vendu': 0,
         });

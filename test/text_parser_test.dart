@@ -3,6 +3,7 @@ import 'package:mtandao/format.dart';
 import 'package:mtandao/text_parser.dart';
 
 void main() {
+  prixTests();
   group('TextTicketParser', () {
     test('lit les codes et la durée du modèle « Tickets Wi-Fi »', () {
       const texte = 'Tickets Wi-Fi\n'
@@ -54,6 +55,62 @@ void main() {
       expect(libelleDuree(1440), '1 jour');
       expect(libelleDuree(10080), '1 semaine');
       expect(libelleDuree(43200), '1 mois');
+    });
+  });
+}
+
+void prixTests() {
+  group('Prix lu dans le texte', () {
+    test('un nombre avec séparateurs de milliers', () {
+      expect(TextTicketParser.entierDe('1000'), 1000);
+      expect(TextTicketParser.entierDe('1 000'), 1000);
+      expect(TextTicketParser.entierDe('1 000'), 1000);
+      expect(TextTicketParser.entierDe('1.000'), 1000);
+      expect(TextTicketParser.entierDe('1,000'), 1000);
+      expect(TextTicketParser.entierDe('2.500.000'), 2500000);
+    });
+
+    test('une partie décimale est arrondie', () {
+      expect(TextTicketParser.entierDe('1500,50'), 1501);
+      expect(TextTicketParser.entierDe('1500.4'), 1500);
+    });
+
+    test('pas un nombre', () {
+      expect(TextTicketParser.entierDe(''), isNull);
+      expect(TextTicketParser.entierDe('abc'), isNull);
+      expect(TextTicketParser.entierDe('12ab'), isNull);
+    });
+
+    test('Prix, Price, Tarif, Montant, avec ou sans monnaie', () {
+      for (final ligne in [
+        'Prix : 1000 CDF',
+        'Price: 1 000',
+        'Tarif : 1.000 FC',
+        'montant : 1000',
+      ]) {
+        final r = TextTicketParser.parse('Code : 111111\nDurée : 1jour(s)\n$ligne');
+        expect(r.single.prix, 1000, reason: ligne);
+      }
+    });
+
+    test('un prix par ticket quand les nombres concordent', () {
+      final r = TextTicketParser.parse(
+          'Code : 111111 Durée : 1jour(s) Prix : 500\nCode : 222222 Durée : 1jour(s) Prix : 800');
+      expect(r.map((t) => t.prix), [500, 800]);
+      expect(TextTicketParser.prixCommun(r), isNull); // différents : pas de prix commun
+    });
+
+    test('un seul prix imprimé pour tout le document : il vaut pour chaque ticket', () {
+      final r = TextTicketParser.parse(
+          'Prix : 1500\nCode : 111111 Durée : 1jour(s)\nCode : 222222 Durée : 1jour(s)\nCode : 333333 Durée : 1jour(s)');
+      expect(r.map((t) => t.prix), [1500, 1500, 1500]);
+      expect(TextTicketParser.prixCommun(r), 1500);
+    });
+
+    test('aucun prix imprimé : aucun prix', () {
+      final r = TextTicketParser.parse('Code : 111111\nDurée : 1jour(s)');
+      expect(r.single.prix, isNull);
+      expect(TextTicketParser.prixCommun(r), isNull);
     });
   });
 }

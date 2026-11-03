@@ -313,6 +313,44 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
     appState.changed();
   }
 
+  /// Change le prix des tickets non vendus du lot ; les tickets vendus gardent
+  /// leur prix.
+  Future<void> _modifierPrix() async {
+    final lot = _lot;
+    if (lot == null) return;
+    final nonVendus = lot.total - lot.vendus;
+    if (nonVendus == 0) {
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(const SnackBar(
+            content: Text('Tous les tickets de ce lot sont vendus : rien à modifier.')));
+      return;
+    }
+    final actuel = await appState.repo.prixDuLot(lot.id);
+    if (!mounted) return;
+    final saisi = await demanderTexte(
+      context,
+      titre: 'Prix des tickets non vendus',
+      libelle: 'Nouveau prix (CDF)',
+      aide:
+          '$nonVendus ticket${nonVendus > 1 ? 's' : ''} non vendu${nonVendus > 1 ? 's' : ''} dans ce lot'
+          '${actuel == null ? ' (prix différents)' : ', actuellement à ${cdf(actuel)}'}. '
+          '${lot.vendus > 0 ? 'Les ${lot.vendus} déjà vendus gardent leur prix.' : ''}',
+      initial: actuel == null ? '' : '$actuel',
+      clavier: TextInputType.number,
+    );
+    final prix = int.tryParse(saisi ?? '');
+    if (prix == null) return;
+    final n = await appState.repo.modifierPrixLot(lot.id, prix);
+    appState.changed();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(SnackBar(
+          content: Text(
+              'Prix de $n ticket${n > 1 ? 's' : ''} : ${cdf(prix)}.')));
+  }
+
   Future<void> _signalerDefectueux(Ticket t) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -353,6 +391,12 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
               onPressed: () => Navigator.of(context).push(MaterialPageRoute(
                   builder: (_) => SaisieManuelleScreen(lot: lot))),
               icon: const Icon(Icons.playlist_add_rounded),
+            ),
+          if (lot != null)
+            IconButton(
+              tooltip: 'Modifier le prix des tickets non vendus',
+              onPressed: _modifierPrix,
+              icon: const Icon(Icons.payments_outlined),
             ),
           IconButton(
               tooltip: 'Renommer',
