@@ -33,7 +33,8 @@ void main() {
       expect(csv.startsWith('﻿Date;Heure;Code;'), isTrue);
       final lignes = csv.trim().split('\r\n');
       expect(lignes, hasLength(2));
-      expect(lignes[1], '02/11/2026;14:30;123456;1 jour;Lot A;1000;Espèces;1000;;');
+      expect(lignes[1],
+          '02/11/2026;14:30;123456;1 jour;Lot A;1000;Espèces;1000;CDF;;;');
     });
 
     test('donne le montant encaissé selon le paiement', () {
@@ -43,7 +44,7 @@ void main() {
         vente('c', paiement: Paiement.mobile),
       ]);
       final l = csv.trim().split('\r\n');
-      expect(l[1], endsWith(';À crédit;0;Marie;'));
+      expect(l[1], endsWith(';À crédit;0;CDF;;Marie;'));
       expect(l[2], contains(';Offert;0;'));
       expect(l[3], contains(';Mobile money;1000;'));
     });

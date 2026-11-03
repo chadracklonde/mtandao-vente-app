@@ -1,10 +1,7 @@
-import 'dart:convert';
-import 'dart:math';
-
-import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 
+import 'pin_hash.dart';
 import 'state.dart';
 
 /// Résultat d'une vérification du code PIN avec limitation des essais.
@@ -25,7 +22,6 @@ class ResultatPin {
 /// seul un hachage salé est enregistré dans la base locale.
 class PinService {
   static const int longueur = 4;
-  static const int _tours = 5000;
 
   // Compteur d'échecs et blocage : enregistrés (clés « pin_ », donc hors
   // sauvegardes) pour que fermer et rouvrir l'application ne les remette pas à zéro.
@@ -48,31 +44,42 @@ class PinService {
   static Future<bool> estDefini() async =>
       (await appState.repo.getSetting('pin_hash')) != null;
 
-  static String _hacher(String sel, String pin) {
-    var h = sha256.convert(utf8.encode('$sel:$pin')).bytes;
-    for (var i = 0; i < _tours; i++) {
-      h = sha256.convert([...h, ...utf8.encode(sel)]).bytes;
-    }
-    return base64Encode(h);
-  }
-
   static Future<void> definir(String pin) async {
-    final rnd = Random.secure();
-    final sel = base64Encode(List<int>.generate(16, (_) => rnd.nextInt(256)));
+    final sel = PinHash.nouveauSel();
     await appState.repo.setSetting('pin_sel', sel);
-    await appState.repo.setSetting('pin_hash', _hacher(sel, pin));
+    await appState.repo.setSetting('pin_hash', PinHash.hacher(sel, pin));
   }
 
   /// Vérifie le code en limitant les essais : après chaque série d'échecs,
   /// l'application se bloque un moment, même si elle est fermée puis rouverte.
   /// Pendant un blocage, même le bon code est refusé.
   static Future<ResultatPin> verifierAvecLimite(String pin,
-      {DateTime? maintenant}) async {
+          {DateTime? maintenant}) =>
+      _avecLimite(pin, verifier, _cleEchecs, _cleBlocage, maintenant);
+
+  /// Code d'un vendeur, avec la même limitation des essais (enregistrée,
+  /// propre à chaque vendeur).
+  static Future<ResultatPin> verifierVendeur(int vendeurId, String pin,
+          {DateTime? maintenant}) =>
+      _avecLimite(
+        pin,
+        (p) => appState.repo.verifierPinVendeur(vendeurId, p),
+        'pin_v${vendeurId}_echecs',
+        'pin_v${vendeurId}_bloque_jusqua',
+        maintenant,
+      );
+
+  static Future<ResultatPin> _avecLimite(
+    String pin,
+    Future<bool> Function(String) verif,
+    String cleEchecs,
+    String cleBlocage,
+    DateTime? maintenant,
+  ) async {
     final repo = appState.repo;
     final now = maintenant ?? DateTime.now();
 
-    final jusqua =
-        int.tryParse(await repo.getSetting(_cleBlocage) ?? '');
+    final jusqua = int.tryParse(await repo.getSetting(cleBlocage) ?? '');
     if (jusqua != null) {
       final fin = DateTime.fromMillisecondsSinceEpoch(jusqua);
       if (now.isBefore(fin)) {
@@ -81,22 +88,36 @@ class PinService {
       }
     }
 
-    if (await verifier(pin)) {
-      await reinitialiserEchecs();
+    if (await verif(pin)) {
+      await repo.removeSetting(cleEchecs);
+      await repo.removeSetting(cleBlocage);
       return const ResultatPin(StatutPin.correct);
     }
 
     final echecs =
-        (int.tryParse(await repo.getSetting(_cleEchecs) ?? '') ?? 0) + 1;
-    await repo.setSetting(_cleEchecs, '$echecs');
+        (int.tryParse(await repo.getSetting(cleEchecs) ?? '') ?? 0) + 1;
+    await repo.setSetting(cleEchecs, '$echecs');
     if (echecs % essaisParSerie == 0) {
       final delai = delaiBlocage(echecs);
       await repo.setSetting(
-          _cleBlocage, '${now.add(delai).millisecondsSinceEpoch}');
+          cleBlocage, '${now.add(delai).millisecondsSinceEpoch}');
       return ResultatPin(StatutPin.bloque, secondes: delai.inSeconds);
     }
     return ResultatPin(StatutPin.incorrect,
         essaisRestants: essaisParSerie - echecs % essaisParSerie);
+  }
+
+  /// « 30 s », « 5 min », « 1 h ».
+  static String dureeLisible(int secondes) {
+    if (secondes < 60) return '$secondes s';
+    if (secondes < 3600) return '${(secondes / 60).ceil()} min';
+    return '${(secondes / 3600).ceil()} h';
+  }
+
+  /// Efface les échecs d'un vendeur (son code vient d'être changé).
+  static Future<void> reinitialiserEchecsVendeur(int vendeurId) async {
+    await appState.repo.removeSetting('pin_v${vendeurId}_echecs');
+    await appState.repo.removeSetting('pin_v${vendeurId}_bloque_jusqua');
   }
 
   /// Efface les échecs (code correct, ou déverrouillage par empreinte).
@@ -109,7 +130,7 @@ class PinService {
     final sel = await appState.repo.getSetting('pin_sel');
     final hash = await appState.repo.getSetting('pin_hash');
     if (sel == null || hash == null) return false;
-    return _hacher(sel, pin) == hash;
+    return PinHash.hacher(sel, pin) == hash;
   }
 }
 

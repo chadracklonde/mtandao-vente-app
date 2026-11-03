@@ -21,6 +21,10 @@ class Rapport {
       encaisse += v.montantEncaisse;
       if (v.aRecevoir) aRecevoir += v.prix;
       if (v.paiement == Paiement.offert) offerts++;
+      if (v.devise == Devise.usd && v.montantDevise != null) {
+        ventesDollar++;
+        dollarsRecus += v.montantDevise!;
+      }
 
       _ajouter(parForfait, v.forfaitNom, v);
       _ajouter(parPaiement, v.paiement, v);
@@ -46,6 +50,11 @@ class Rapport {
 
   /// Tickets offerts.
   int offerts = 0;
+
+  /// Tickets payés en dollars, et total reçu en dollars (en centimes). Ces
+  /// ventes sont déjà comptées en francs dans [encaisse], au prix du ticket.
+  int ventesDollar = 0;
+  int dollarsRecus = 0;
 
   /// Par forfait : nombre de tickets et argent encaissé.
   final Map<String, Total> parForfait = {};
@@ -106,6 +115,8 @@ class Rapport {
       'Montant encaissé : ${cdf(encaisse)}',
       if (aRecevoir > 0) 'À recevoir (crédits) : ${cdf(aRecevoir)}',
       if (offerts > 0) 'Tickets offerts : $offerts',
+      if (ventesDollar > 0)
+        'Dont payé en dollars : ${tickets(ventesDollar)}, ${Devise.formaterDollar(dollarsRecus)}',
     ];
     if (parForfait.length > 1) {
       l..add('')..add('Par forfait :');

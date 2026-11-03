@@ -18,7 +18,7 @@ class BackupException implements Exception {
 /// Sauvegarde / restauration des données dans un seul fichier « .mtandao »
 /// (JSON compressé). Le code PIN n'est jamais inclus.
 class Sauvegarde {
-  static const int version = 2;
+  static const int version = 3;
   static const String extension = 'mtandao';
 
   // Réglages exclus de la sauvegarde (PIN, lot actif, état de la sauvegarde
@@ -55,7 +55,11 @@ class Sauvegarde {
       'exporte_le': DateTime.now().millisecondsSinceEpoch,
       'forfaits': await db.query('forfaits'),
       'clients': await db.query('clients'),
-      'vendeurs': await db.query('vendeurs'),
+      // Les codes des vendeurs (hachés) restent sur ce téléphone, comme le PIN.
+      'vendeurs': [
+        for (final v in await db.query('vendeurs'))
+          {...v}..remove('pin_sel')..remove('pin_hash'),
+      ],
       'lots': await db.query('lots'),
       'tickets': await db.query('tickets'),
       'images': await db.query('ticket_images'),
@@ -111,6 +115,13 @@ class Sauvegarde {
     final reglages = Map<String, Object?>.from(d['settings'] as Map);
 
     await repo.db.transaction((txn) async {
+      // Les codes des vendeurs ne sont pas dans la sauvegarde : on garde ceux
+      // de ce téléphone pour les vendeurs qui reviennent (même numéro et même nom).
+      final codes = <int, Map<String, Object?>>{
+        for (final v in await txn.query('vendeurs'))
+          if (v['pin_hash'] != null) v['id'] as int: v,
+      };
+
       await txn.delete('ticket_images');
       await txn.delete('tickets');
       await txn.delete('lots');
@@ -130,7 +141,14 @@ class Sauvegarde {
         b.insert('clients', r);
       }
       for (final r in vendeurs) {
-        b.insert('vendeurs', r);
+        final ancien = codes[r['id']];
+        b.insert('vendeurs', {
+          ...r,
+          if (ancien != null && ancien['nom'] == r['nom']) ...{
+            'pin_sel': ancien['pin_sel'],
+            'pin_hash': ancien['pin_hash'],
+          },
+        });
       }
       for (final r in lots) {
         b.insert('lots', r);

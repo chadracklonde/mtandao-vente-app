@@ -5,6 +5,30 @@ import 'dart:typed_data';
 const String cleSeuilStock = 'seuil_stock';
 const int seuilStockParDefaut = 20;
 
+/// Réglage : francs congolais pour 1 dollar. 0 ou absent : paiement en dollars
+/// désactivé (tout se passe en francs).
+const String cleTauxDollar = 'taux_dollar';
+
+/// Devises de paiement.
+class Devise {
+  static const String cdf = 'CDF';
+  static const String usd = 'USD';
+
+  /// Montant en dollars (centimes) pour un prix en francs, au [taux] donné.
+  /// Arrondi au centime.
+  static int centimesDollar(int prixCdf, int taux) =>
+      taux <= 0 ? 0 : ((prixCdf * 100) / taux).round();
+
+  /// « 2,50 USD ».
+  static String formaterDollar(int centimes) {
+    final negatif = centimes < 0;
+    final c = centimes.abs();
+    final entier = c ~/ 100;
+    final reste = (c % 100).toString().padLeft(2, '0');
+    return '${negatif ? '-' : ''}$entier,$reste USD';
+  }
+}
+
 /// Modes de paiement d'une vente.
 ///  - espèces et mobile money : encaissé tout de suite ;
 ///  - crédit : vendu mais pas encore payé (une dette du client) ;
@@ -124,6 +148,9 @@ class Ticket {
     this.clientId,
     this.payeLe,
     this.vendeurId,
+    this.devise = Devise.cdf,
+    this.taux,
+    this.montantDevise,
   });
 
   final int id;
@@ -142,6 +169,12 @@ class Ticket {
   final int? clientId;
   final DateTime? payeLe;
   final int? vendeurId;
+
+  /// Devise reçue ; pour le dollar : taux (francs pour 1 dollar) et montant
+  /// reçu en centimes de dollar.
+  final String devise;
+  final int? taux;
+  final int? montantDevise;
 
   /// Vrai si le mot de passe diffère du code (ticket « utilisateur + mot de passe »).
   bool get aMotDePasseDistinct =>
@@ -168,6 +201,9 @@ class Ticket {
             ? null
             : DateTime.fromMillisecondsSinceEpoch(m['paye_le'] as int),
         vendeurId: m['vendeur_id'] as int?,
+        devise: (m['devise'] as String?) ?? Devise.cdf,
+        taux: m['taux'] as int?,
+        montantDevise: m['montant_devise'] as int?,
       );
 }
 
@@ -199,15 +235,24 @@ class Client {
 }
 
 class Vendeur {
-  const Vendeur({required this.id, required this.nom, required this.actif});
+  const Vendeur({
+    required this.id,
+    required this.nom,
+    required this.actif,
+    this.aUnCode = false,
+  });
   final int id;
   final String nom;
   final bool actif;
+
+  /// Vrai si le vendeur a un code personnel (demandé pour vendre en son nom).
+  final bool aUnCode;
 
   factory Vendeur.fromMap(Map<String, Object?> m) => Vendeur(
         id: m['id'] as int,
         nom: m['nom'] as String,
         actif: (m['actif'] as int) == 1,
+        aUnCode: m['pin_hash'] != null,
       );
 }
 
@@ -267,6 +312,8 @@ class VenteLigne {
     this.vendeurNom,
     this.clientNom,
     this.payeLe,
+    this.devise = Devise.cdf,
+    this.montantDevise,
   });
 
   final String code;
@@ -278,6 +325,10 @@ class VenteLigne {
   final String? vendeurNom;
   final String? clientNom;
   final DateTime? payeLe;
+
+  /// Devise reçue et, pour le dollar, montant reçu en centimes.
+  final String devise;
+  final int? montantDevise;
 
   /// Vrai si l'argent est réellement rentré : espèces, mobile money, ou un
   /// crédit qui a été payé depuis.

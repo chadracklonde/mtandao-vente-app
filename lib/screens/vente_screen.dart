@@ -9,6 +9,7 @@ import '../format.dart';
 import '../models.dart';
 import '../state.dart';
 import '../widgets/barre_progression.dart';
+import '../widgets/code_vendeur.dart';
 import '../widgets/dialogue_vente.dart';
 import '../widgets/ticket_card.dart';
 import 'import_flow.dart';
@@ -134,6 +135,14 @@ class _VenteScreenState extends State<VenteScreen> {
       ),
     );
     if (choix == null) return;
+    if (choix != -1) {
+      final vendeur = _vendeurs.where((v) => v.id == choix).firstOrNull;
+      // Un vendeur protégé par un code doit le saisir pour vendre en son nom.
+      if (vendeur != null && vendeur.aUnCode) {
+        if (!mounted) return;
+        if (!await demanderCodeVendeur(context, vendeur)) return;
+      }
+    }
     await appState.repo.definirVendeurActif(choix == -1 ? null : choix);
     appState.changed();
   }
@@ -214,6 +223,7 @@ class _VenteScreenState extends State<VenteScreen> {
       // le mode de paiement (espèces par défaut).
       final repo = appState.repo;
       final clients = await repo.clients();
+      final taux = await repo.tauxDollar();
       if (!mounted) return;
       final vendeur = _vendeurActif;
       final choix = await demanderVente(
@@ -222,6 +232,7 @@ class _VenteScreenState extends State<VenteScreen> {
         clients: clients,
         creerClient: (nom, tel) => repo.ajouterClient(nom, telephone: tel),
         vendeurNom: vendeur?.nom,
+        tauxDollar: taux,
       );
       if (choix == null) return;
       final ok = await repo.vendre(
@@ -229,6 +240,8 @@ class _VenteScreenState extends State<VenteScreen> {
         paiement: choix.paiement,
         clientId: choix.clientId,
         vendeurId: vendeur?.id,
+        devise: choix.devise,
+        taux: choix.taux,
       );
       HapticFeedback.mediumImpact();
       appState.changed();
@@ -242,12 +255,15 @@ class _VenteScreenState extends State<VenteScreen> {
                 .firstOrNull
             : null;
         if (!mounted) return;
+        final dollars = choix.devise == Devise.usd
+            ? '  ·  reçu ${Devise.formaterDollar(Devise.centimesDollar(t.prix, choix.taux!))}'
+            : '';
         final detail = switch (choix.paiement) {
           Paiement.especes => '',
           Paiement.credit => '  ·  à crédit (${nomClient ?? 'client'})',
           final p => '  ·  ${Paiement.libelle(p).toLowerCase()}',
         };
-        _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}$detail',
+        _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}$detail$dollars',
             annulable: true);
       } else {
         _afficherBandeau('Ticket ${t.code} indisponible : il a déjà été vendu '
@@ -393,7 +409,11 @@ class _VenteScreenState extends State<VenteScreen> {
                 Align(
                   alignment: Alignment.centerRight,
                   child: ActionChip(
-                    avatar: const Icon(Icons.person_outline_rounded, size: 18),
+                    avatar: Icon(
+                        _vendeurActif?.aUnCode == true
+                            ? Icons.lock_rounded
+                            : Icons.person_outline_rounded,
+                        size: 18),
                     label: Text(_vendeurActif?.nom ?? 'Choisir le vendeur'),
                     onPressed: _choisirVendeur,
                   ),
