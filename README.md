@@ -37,7 +37,7 @@ Le prix est enregistré sur chaque ticket à l'import : changer un tarif plus ta
 
 ## Modèles de PDF reconnus
 
-1. **Planche Mikhmon** (logo MIKHMON, QR code, 4 × 4 tickets par page en paysage).
+1. **Planche de tickets à QR code** (Mikhmon ou autre) : paysage ou portrait, un ticket ou des dizaines par page, grille quelconque. Les QR sont repérés sur la page, quel que soit leur emplacement.
    Les pages n'ont pas de texte : l'application lit le code **dans le QR**
    (`...login?username=24283&password=24283`) et garde l'image du ticket.
    Rendu à 300 dpi, deuxième essai à 400 dpi pour les QR difficiles,
