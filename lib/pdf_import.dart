@@ -4,7 +4,9 @@ import 'package:pdfrx/pdfrx.dart';
 import 'package:zxing2/qrcode.dart';
 
 import 'models.dart';
+import 'planche_qr.dart';
 import 'text_parser.dart';
+import 'xlsx_import.dart';
 
 class ImportException implements Exception {
   ImportException(this.message);
@@ -22,9 +24,10 @@ class ParsedPdf {
     this.dureeMinutes,
     this.loginUrl,
     this.prix,
+    this.ignores = 0,
   });
 
-  /// 'mikhmon' (tickets en image avec QR) ou 'texte' (Code / Durée).
+  /// 'mikhmon' (tickets en image avec QR), 'texte' (Code / Durée) ou 'excel'.
   final String source;
 
   /// Tickets dans l'ordre du PDF. Une case illisible vaut null (voir [echecs]).
@@ -39,6 +42,9 @@ class ParsedPdf {
   /// Prix lu dans le PDF quand il y est imprimé en texte (modèle « Code /
   /// Durée »). Les planches Mikhmon sont des images : leur prix n'est pas lu.
   final int? prix;
+
+  /// Tickets du fichier laissés de côté (tableur : déjà utilisés).
+  final int ignores;
 }
 
 typedef Progression = void Function(double fraction, String message);
@@ -75,6 +81,9 @@ const double _dpiRetentative = 400;
 class PdfImporter {
   /// Lit un PDF de tickets (détection automatique du modèle).
   static Future<ParsedPdf> lire(String chemin, Progression progression) async {
+    if (chemin.toLowerCase().endsWith('.xlsx')) {
+      return XlsxImporter.lire(chemin, progression);
+    }
     PdfDocument doc;
     try {
       doc = await PdfDocument.openFile(chemin);
@@ -154,34 +163,71 @@ class PdfImporter {
     String? loginUrl;
     final n = doc.pages.length;
 
+    // Pages lues par la lecture générale (autre mise en page que le modèle
+    // d'origine) : indice de slot -> (page, centre normalisé du ticket).
+    final generique = <int, (int, double, double)>{};
+    final pagesGeneriques = <int>{};
+    var numero = 0;
+
     for (var p = 0; p < n; p++) {
       progression(p / n, 'Lecture de la page ${p + 1} sur $n…');
       final page = doc.pages[p];
-      if (page.width < page.height) {
-        throw ImportException(
-            'Mise en page non reconnue (page en portrait). Le modèle attendu est une planche Mikhmon en paysage, 4 × 4 tickets.');
+
+      // Modèle d'origine (Mikhmon paysage 4 × 4) : lecture à positions connues.
+      var traitee = false;
+      if (_estModeleOrigine(page)) {
+        final rendu = await _rendreCases(page, _dpiNormal);
+        final sorties = await compute(_traiterLot, rendu);
+        final lus = [
+          for (final s in sorties) s.vide || s.qr == null ? null : _lireQr(s.qr!)
+        ];
+        if (lus.any((l) => l != null)) {
+          traitee = true;
+          for (var k = 0; k < sorties.length; k++) {
+            final s = sorties[k];
+            if (s.vide) continue;
+            final idx = slots.length;
+            numero++;
+            final lu = lus[k];
+            if (lu != null) {
+              loginUrl ??= lu.url;
+              slots.add(ParsedTicket(
+                code: lu.code,
+                motDePasse: lu.motDePasse,
+                qrTexte: s.qr,
+                numero: numero,
+                image: s.png,
+              ));
+            } else {
+              slots.add(null);
+              echecs[idx] = s.png!;
+              origine[idx] = (p, k);
+            }
+          }
+        }
       }
-      final rendu = await _rendreCases(page, _dpiNormal);
-      final sorties = await compute(_traiterLot, rendu);
-      for (var k = 0; k < sorties.length; k++) {
-        final s = sorties[k];
-        if (s.vide) continue;
+      if (traitee) continue;
+
+      // Toute autre mise en page (portrait, nombre de tickets quelconque…).
+      pagesGeneriques.add(p);
+      final cases = await _lirePageGenerique(page, _dpiNormal);
+      for (final c in cases) {
         final idx = slots.length;
-        final numero = p * _colonnes * _lignes + k + 1;
-        final lu = s.qr == null ? null : _lireQr(s.qr!);
+        numero++;
+        final lu = c.texte == null ? null : _lireQr(c.texte!);
         if (lu != null) {
           loginUrl ??= lu.url;
           slots.add(ParsedTicket(
             code: lu.code,
             motDePasse: lu.motDePasse,
-            qrTexte: s.qr,
+            qrTexte: c.texte,
             numero: numero,
-            image: s.png,
+            image: c.png,
           ));
         } else {
           slots.add(null);
-          echecs[idx] = s.png!;
-          origine[idx] = (p, k);
+          echecs[idx] = c.png;
+          generique[idx] = (p, c.cx, c.cy);
         }
       }
     }
@@ -190,11 +236,42 @@ class PdfImporter {
     if (echecs.isNotEmpty) {
       final parPage = <int, List<int>>{};
       origine.forEach((idx, pk) => parPage.putIfAbsent(pk.$1, () => []).add(idx));
+      generique.forEach((idx, pcc) => parPage.putIfAbsent(pcc.$1, () => []).add(idx));
       var fait = 0;
       for (final entree in parPage.entries) {
         progression(fait / parPage.length,
             'Nouvelle tentative sur la page ${entree.key + 1}…');
         fait++;
+        if (pagesGeneriques.contains(entree.key)) {
+          final cases =
+              await _lirePageGenerique(doc.pages[entree.key], _dpiRetentative);
+          for (final idx in entree.value) {
+            final (_, ox, oy) = generique[idx]!;
+            _CelleLue? meilleure;
+            var d = double.infinity;
+            for (final c in cases) {
+              final e = (c.cx - ox) * (c.cx - ox) + (c.cy - oy) * (c.cy - oy);
+              if (e < d) {
+                d = e;
+                meilleure = c;
+              }
+            }
+            final lu = (meilleure == null || meilleure.texte == null || d > 0.0004)
+                ? null
+                : _lireQr(meilleure.texte!);
+            if (lu != null) {
+              slots[idx] = ParsedTicket(
+                code: lu.code,
+                motDePasse: lu.motDePasse,
+                qrTexte: meilleure!.texte,
+                numero: _numeroDuSlot(slots, idx),
+                image: meilleure.png,
+              );
+              echecs.remove(idx);
+            }
+          }
+          continue;
+        }
         final rendu = await _rendreCases(doc.pages[entree.key], _dpiRetentative);
         final sorties = await compute(_traiterLot, rendu);
         for (final idx in entree.value) {
@@ -206,7 +283,7 @@ class PdfImporter {
               code: lu.code,
               motDePasse: lu.motDePasse,
               qrTexte: s.qr,
-              numero: entree.key * _colonnes * _lignes + k + 1,
+              numero: _numeroDuSlot(slots, idx),
               image: s.png,
             );
             echecs.remove(idx);
@@ -230,6 +307,38 @@ class PdfImporter {
       echecs: echecs,
       loginUrl: loginUrl,
     );
+  }
+
+  /// Numéro de ticket d'un slot : sa position dans le PDF.
+  static int _numeroDuSlot(List<ParsedTicket?> slots, int idx) => idx + 1;
+
+  /// Page au format du modèle d'origine (Letter paysage, 792 × 612 pt).
+  static bool _estModeleOrigine(PdfPage page) =>
+      (page.width - _pageLargeurRef).abs() < 30 && (page.height - 612).abs() < 30;
+
+  /// Lecture générale d'une page : QR repérés où qu'ils soient, tickets
+  /// découpés autour. Résolution limitée pour ne pas saturer la mémoire.
+  static Future<List<_CelleLue>> _lirePageGenerique(PdfPage page, double dpi) async {
+    var echelle = dpi / 72.0;
+    final plusLong = page.width > page.height ? page.width : page.height;
+    if (plusLong * echelle > 4200) echelle = 4200 / plusLong;
+    final image = await page.render(
+      fullWidth: page.width * echelle,
+      fullHeight: page.height * echelle,
+    );
+    if (image == null) {
+      throw ImportException('Impossible de rendre une page du PDF.');
+    }
+    final Uint8List px;
+    final int w, h;
+    try {
+      w = image.width;
+      h = image.height;
+      px = Uint8List.fromList(image.pixels);
+    } finally {
+      image.dispose();
+    }
+    return compute(_analyserPageJob, _PageJob(px, w, h));
   }
 
   /// Rend la page à la résolution voulue et découpe les 16 cases.
@@ -422,4 +531,40 @@ String? _decoderQr(img.Image im) {
   } catch (_) {
     return null;
   }
+}
+
+class _PageJob {
+  _PageJob(this.px, this.w, this.h);
+  final Uint8List px;
+  final int w;
+  final int h;
+}
+
+class _CelleLue {
+  _CelleLue(this.texte, this.png, this.cx, this.cy);
+  final String? texte;
+  final Uint8List png;
+
+  /// Centre du ticket, en fraction de la page (pour retrouver le même ticket
+  /// d'une résolution à l'autre).
+  final double cx;
+  final double cy;
+}
+
+List<_CelleLue> _analyserPageJob(_PageJob j) {
+  final cellules = analyserPlanche(
+    j.px,
+    j.w,
+    j.h,
+    accepter: (t) => PdfImporter._lireQr(t) != null,
+  );
+  return [
+    for (final c in cellules)
+      _CelleLue(
+        c.texte,
+        c.png!,
+        (c.cellule.x + c.cellule.l / 2) / j.w,
+        (c.cellule.y + c.cellule.h / 2) / j.h,
+      ),
+  ];
 }

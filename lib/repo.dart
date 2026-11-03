@@ -339,12 +339,26 @@ class Repo {
     return r.isEmpty ? null : Ticket.fromMap(r.first);
   }
 
-  /// Annule la dernière vente, tous forfaits confondus.
+  /// Dernière vente (un ou plusieurs tickets vendus ensemble).
+  Future<List<Ticket>> derniereVente() async {
+    final dernier = await dernierVenduGlobal();
+    if (dernier == null || dernier.venduLe == null) return const [];
+    final r = await db.query('tickets',
+        where: 'vendu = 1 AND vendu_le = ?',
+        whereArgs: [dernier.venduLe!.millisecondsSinceEpoch],
+        orderBy: 'id ASC');
+    return r.map(Ticket.fromMap).toList();
+  }
+
+  /// Annule la dernière vente, tous forfaits confondus (tous les tickets
+  /// vendus ensemble). Retourne le dernier ticket vendu, ou null.
   Future<Ticket?> annulerDerniereVenteGlobale() async {
-    final t = await dernierVenduGlobal();
-    if (t == null) return null;
-    await remettreEnStock(t.id);
-    return t;
+    final dernier = await dernierVenduGlobal();
+    final groupe = await derniereVente();
+    for (final t in groupe) {
+      await remettreEnStock(t.id);
+    }
+    return dernier;
   }
 
   /// Tickets vendus et argent encaissé entre [debut] (inclus) et [fin]
@@ -408,7 +422,8 @@ class Repo {
   /// Marque un ticket comme vendu. Retourne faux s'il l'était déjà, ou s'il
   /// est signalé défectueux.
   ///
-  /// [paiement] : espèces par défaut. Une vente à crédit exige un [clientId].
+  /// [paiement] : espèces par défaut. Une vente à crédit exige un [clientId] ;
+  /// pour les autres paiements, le client est facultatif (simple nom noté).
   ///
   /// [devise] : francs par défaut. Pour un paiement en dollars, [taux] est le
   /// nombre de francs pour 1 dollar ; le montant reçu en dollars est calculé
@@ -423,6 +438,18 @@ class Repo {
     String devise = Devise.cdf,
     int? taux,
   }) async {
+    _verifierVente(paiement, clientId, devise, taux);
+    final maintenant = DateTime.now().millisecondsSinceEpoch;
+    return db.transaction((txn) => _vendreDans(txn, ticketId,
+        paiement: paiement,
+        clientId: clientId,
+        vendeurId: vendeurId,
+        devise: devise,
+        taux: taux,
+        venduLe: maintenant));
+  }
+
+  void _verifierVente(String paiement, int? clientId, String devise, int? taux) {
     if (!Paiement.tous.contains(paiement)) {
       throw ArgumentError('Mode de paiement inconnu : $paiement');
     }
@@ -440,29 +467,93 @@ class Repo {
         throw ArgumentError('Le dollar est possible en espèces ou mobile money.');
       }
     }
+  }
+
+  Future<bool> _vendreDans(
+    Transaction txn,
+    int ticketId, {
+    required String paiement,
+    required int? clientId,
+    required int? vendeurId,
+    required String devise,
+    required int? taux,
+    required int venduLe,
+  }) async {
+    final r = await txn.query('tickets',
+        columns: ['prix'], where: 'id = ?', whereArgs: [ticketId], limit: 1);
+    if (r.isEmpty) return false;
+    final prix = r.first['prix'] as int;
+    final n = await txn.update(
+      'tickets',
+      {
+        'vendu': 1,
+        'vendu_le': venduLe,
+        'paiement': paiement,
+        'client_id': clientId,
+        'paye_le': null,
+        'vendeur_id': vendeurId,
+        'devise': devise,
+        'taux': devise == Devise.usd ? taux : null,
+        'montant_devise':
+            devise == Devise.usd ? Devise.centimesDollar(prix, taux!) : null,
+      },
+      where: 'id = ? AND vendu = 0 AND defectueux = 0',
+      whereArgs: [ticketId],
+    );
+    return n > 0;
+  }
+
+  /// Les [n] prochains tickets à vendre pour un forfait, dans l'ordre de vente
+  /// (lot préféré d'abord, puis lots du plus ancien au plus récent).
+  Future<List<Ticket>> prochainsTicketsForfait(int forfaitId, int n,
+      {int? lotPrefereId}) async {
+    final r = await db.rawQuery('''
+      SELECT t.* FROM tickets t JOIN lots l ON l.id = t.lot_id
+      WHERE t.forfait_id = ? AND t.vendu = 0 AND t.defectueux = 0
+      ORDER BY (t.lot_id = ?) DESC, l.cree_le ASC, l.id ASC, t.position ASC, t.id ASC
+      LIMIT ?''', [forfaitId, lotPrefereId ?? -1, n]);
+    return r.map(Ticket.fromMap).toList();
+  }
+
+  /// Vend d'un coup les [quantite] prochains tickets d'un forfait (même
+  /// client, même paiement). Tout ou rien : liste vide s'il n'y en a pas assez.
+  /// Les tickets partagent la même heure de vente, ce qui permet de les annuler
+  /// ensemble.
+  Future<List<Ticket>> vendreQuantite(
+    int forfaitId,
+    int quantite, {
+    int? lotPrefereId,
+    String paiement = Paiement.especes,
+    int? clientId,
+    int? vendeurId,
+    String devise = Devise.cdf,
+    int? taux,
+  }) async {
+    if (quantite < 1) throw ArgumentError('La quantité doit être au moins 1.');
+    _verifierVente(paiement, clientId, devise, taux);
+    final maintenant = DateTime.now().millisecondsSinceEpoch;
     return db.transaction((txn) async {
-      final r = await txn.query('tickets',
-          columns: ['prix'], where: 'id = ?', whereArgs: [ticketId], limit: 1);
-      if (r.isEmpty) return false;
-      final prix = r.first['prix'] as int;
-      final n = await txn.update(
-        'tickets',
-        {
-          'vendu': 1,
-          'vendu_le': DateTime.now().millisecondsSinceEpoch,
-          'paiement': paiement,
-          'client_id': paiement == Paiement.credit ? clientId : null,
-          'paye_le': null,
-          'vendeur_id': vendeurId,
-          'devise': devise,
-          'taux': devise == Devise.usd ? taux : null,
-          'montant_devise':
-              devise == Devise.usd ? Devise.centimesDollar(prix, taux!) : null,
-        },
-        where: 'id = ? AND vendu = 0 AND defectueux = 0',
-        whereArgs: [ticketId],
-      );
-      return n > 0;
+      final r = await txn.rawQuery('''
+        SELECT t.id FROM tickets t JOIN lots l ON l.id = t.lot_id
+        WHERE t.forfait_id = ? AND t.vendu = 0 AND t.defectueux = 0
+        ORDER BY (t.lot_id = ?) DESC, l.cree_le ASC, l.id ASC, t.position ASC, t.id ASC
+        LIMIT ?''', [forfaitId, lotPrefereId ?? -1, quantite]);
+      final ids = [for (final m in r) m['id'] as int];
+      if (ids.length < quantite) return <Ticket>[];
+      for (final id in ids) {
+        final ok = await _vendreDans(txn, id,
+            paiement: paiement,
+            clientId: clientId,
+            vendeurId: vendeurId,
+            devise: devise,
+            taux: taux,
+            venduLe: maintenant);
+        if (!ok) return <Ticket>[];
+      }
+      final lignes =
+          await txn.query('tickets', where: 'id IN (${ids.join(',')})');
+      final parId = {for (final m in lignes) m['id'] as int: Ticket.fromMap(m)};
+      return [for (final id in ids) parId[id]!];
     });
   }
 
@@ -681,5 +772,189 @@ class Repo {
     } else {
       await setSetting(cleVendeurActif, '$id');
     }
+  }
+
+  // ------------------------------------------------------------- recherche
+
+  /// Cherche des tickets par code, nom ou téléphone du client, ou vendeur.
+  /// Sans texte : les ventes les plus récentes.
+  Future<List<TicketRecherche>> rechercher(String texte, {int limite = 100}) async {
+    final q = texte.trim();
+    final args = <Object?>[];
+    var where = 't.vendu = 1';
+    if (q.isNotEmpty) {
+      final motif = '%${q.replaceAll('%', '').replaceAll('_', '')}%';
+      where = '(t.code LIKE ? OR c.nom LIKE ? OR c.telephone LIKE ? OR v.nom LIKE ?)';
+      args.addAll([motif, motif, motif, motif]);
+    }
+    final r = await db.rawQuery('''
+      SELECT t.*, f.nom AS forfait_nom, l.nom AS lot_nom,
+             c.nom AS client_nom, c.telephone AS client_tel, v.nom AS vendeur_nom
+      FROM tickets t
+      JOIN forfaits f ON f.id = t.forfait_id
+      JOIN lots l ON l.id = t.lot_id
+      LEFT JOIN clients c ON c.id = t.client_id
+      LEFT JOIN vendeurs v ON v.id = t.vendeur_id
+      WHERE $where
+      ORDER BY t.vendu DESC, t.vendu_le DESC, t.id DESC
+      LIMIT ?''', [...args, limite]);
+    return [
+      for (final m in r)
+        TicketRecherche(
+          ticket: Ticket.fromMap(m),
+          forfaitNom: m['forfait_nom'] as String,
+          lotNom: m['lot_nom'] as String,
+          clientNom: m['client_nom'] as String?,
+          clientTelephone: m['client_tel'] as String?,
+          vendeurNom: m['vendeur_nom'] as String?,
+        ),
+    ];
+  }
+
+  // ------------------------------------------------------ suivi d'utilisation
+
+  /// Compare l'export du routeur à nos tickets : marque ceux qui ont été
+  /// utilisés, et repère les écarts (vendus jamais utilisés ; utilisés sans
+  /// avoir été vendus). [utilises] : codes déjà consommés ; [disponibles] :
+  /// codes que le routeur dit encore inutilisés.
+  Future<RapportUtilisation> appliquerUtilisation({
+    required Set<String> utilises,
+    required Set<String> disponibles,
+  }) async {
+    final maintenant = DateTime.now().millisecondsSinceEpoch;
+    Future<List<Ticket>> trouver(Set<String> codes) async {
+      final liste = codes.toList();
+      final res = <Ticket>[];
+      for (var i = 0; i < liste.length; i += 400) {
+        final lot = liste.sublist(i, i + 400 > liste.length ? liste.length : i + 400);
+        final r = await db.query('tickets',
+            where: 'code IN (${List.filled(lot.length, '?').join(',')})',
+            whereArgs: lot);
+        res.addAll(r.map(Ticket.fromMap));
+      }
+      return res;
+    }
+
+    final tUtilises = await trouver(utilises);
+    final tDispos = await trouver(disponibles);
+    var marques = 0;
+    final nonVendus = <Ticket>[];
+    await db.transaction((txn) async {
+      for (final t in tUtilises) {
+        if (t.utiliseLe == null) {
+          await txn.update('tickets', {'utilise_le': maintenant},
+              where: 'id = ?', whereArgs: [t.id]);
+          marques++;
+        }
+        if (!t.vendu && !t.defectueux) nonVendus.add(t);
+      }
+    });
+    final connus = {for (final t in [...tUtilises, ...tDispos]) t.code};
+    return RapportUtilisation(
+      marques: marques,
+      vendusNonUtilises: [
+        for (final t in tDispos)
+          if (t.vendu && t.utiliseLe == null) t,
+      ],
+      utilisesNonVendus: nonVendus,
+      inconnus: {...utilises, ...disponibles}.difference(connus).length,
+    );
+  }
+
+  // ------------------------------------------------------ clôture de caisse
+
+  static String jourTexte(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// Argent liquide attendu en caisse pour un jour (et un vendeur, ou tous) :
+  /// espèces en francs, espèces en dollars (centimes), et dettes payées ce
+  /// jour-là. Le mobile money et les tickets offerts n'entrent pas en caisse.
+  Future<({int especesCdf, int dettesCdf, int usd})> attenduCaisse(
+      DateTime jour, {int? vendeurId}) async {
+    final debut = DateTime(jour.year, jour.month, jour.day).millisecondsSinceEpoch;
+    final fin = DateTime(jour.year, jour.month, jour.day + 1).millisecondsSinceEpoch;
+    final v = vendeurId == null ? '' : ' AND vendeur_id = $vendeurId';
+    final a = await db.rawQuery('''
+      SELECT
+        COALESCE(SUM(CASE WHEN paiement = 'especes' AND devise = 'CDF' THEN prix ELSE 0 END), 0) AS cdf,
+        COALESCE(SUM(CASE WHEN paiement = 'especes' AND devise = 'USD' THEN montant_devise ELSE 0 END), 0) AS usd
+      FROM tickets WHERE vendu = 1 AND vendu_le >= ? AND vendu_le < ?$v''',
+        [debut, fin]);
+    final d = await db.rawQuery('''
+      SELECT COALESCE(SUM(prix), 0) AS dettes FROM tickets
+      WHERE vendu = 1 AND paiement = 'credit' AND paye_le >= ? AND paye_le < ?$v''',
+        [debut, fin]);
+    return (
+      especesCdf: (a.first['cdf'] as int?) ?? 0,
+      dettesCdf: (d.first['dettes'] as int?) ?? 0,
+      usd: (a.first['usd'] as int?) ?? 0,
+    );
+  }
+
+  Future<void> enregistrerCloture({
+    required DateTime jour,
+    int? vendeurId,
+    required int attenduCdf,
+    required int compteCdf,
+    int attenduUsd = 0,
+    int compteUsd = 0,
+    String? note,
+  }) async {
+    final n = note?.trim();
+    await db.insert('clotures', {
+      'jour': jourTexte(jour),
+      'vendeur_id': vendeurId,
+      'attendu_cdf': attenduCdf,
+      'compte_cdf': compteCdf,
+      'attendu_usd': attenduUsd,
+      'compte_usd': compteUsd,
+      'note': (n == null || n.isEmpty) ? null : n,
+      'cree_le': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<List<Cloture>> clotures({int limite = 60}) async {
+    final r = await db.rawQuery('''
+      SELECT c.*, v.nom AS vendeur_nom FROM clotures c
+      LEFT JOIN vendeurs v ON v.id = c.vendeur_id
+      ORDER BY c.jour DESC, c.id DESC LIMIT ?''', [limite]);
+    return [
+      for (final m in r)
+        Cloture(
+          id: m['id'] as int,
+          jour: m['jour'] as String,
+          vendeurId: m['vendeur_id'] as int?,
+          vendeurNom: m['vendeur_nom'] as String?,
+          attenduCdf: m['attendu_cdf'] as int,
+          compteCdf: m['compte_cdf'] as int,
+          attenduUsd: (m['attendu_usd'] as int?) ?? 0,
+          compteUsd: (m['compte_usd'] as int?) ?? 0,
+          note: m['note'] as String?,
+          creeLe: DateTime.fromMillisecondsSinceEpoch(m['cree_le'] as int),
+        ),
+    ];
+  }
+
+  Future<void> supprimerCloture(int id) =>
+      db.delete('clotures', where: 'id = ?', whereArgs: [id]);
+
+  // ------------------------------------------------------- dettes en retard
+
+  /// Délai de paiement en jours (0 : pas de rappel de retard).
+  Future<int> delaiDetteJours() async =>
+      int.tryParse(await getSetting(cleDelaiDette) ?? '') ?? delaiDetteParDefaut;
+
+  /// Une dette est en retard quand le ticket a été vendu il y a plus de
+  /// [delai] jours (0 : jamais en retard).
+  static bool detteEnRetard(DetteLigne d, int delai, DateTime maintenant) =>
+      delai > 0 && maintenant.difference(d.venduLe).inDays >= delai;
+
+  Future<List<DetteLigne>> dettesEnRetard() async {
+    final delai = await delaiDetteJours();
+    final maintenant = DateTime.now();
+    return [
+      for (final d in await dettes())
+        if (detteEnRetard(d, delai, maintenant)) d,
+    ];
   }
 }

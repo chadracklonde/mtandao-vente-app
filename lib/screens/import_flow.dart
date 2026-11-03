@@ -9,7 +9,7 @@ import '../pdf_import.dart';
 import '../state.dart';
 import 'saisie_manuelle.dart';
 
-/// Importation d'un PDF de tickets : choix du fichier, lecture, corrections
+/// Importation d'un fichier de tickets (PDF ou Excel) : choix du fichier, lecture, corrections
 /// éventuelles, choix du forfait, création du lot.
 class ImportFlow {
   static Future<void> demarrer(BuildContext context) async {
@@ -17,7 +17,7 @@ class ImportFlow {
 
     final choix = await FilePicker.platform.pickFiles(
       type: FileType.custom,
-      allowedExtensions: const ['pdf'],
+      allowedExtensions: const ['pdf', 'xlsx'],
       withData: false,
     );
     if (choix == null || choix.files.isEmpty) return;
@@ -31,7 +31,7 @@ class ImportFlow {
 
     // ------------------------------------------------------------- lecture
     final progression =
-        ValueNotifier<({double f, String m})>((f: 0.0, m: 'Ouverture du PDF…'));
+        ValueNotifier<({double f, String m})>((f: 0.0, m: 'Ouverture du fichier…'));
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -172,7 +172,8 @@ class ImportFlow {
         ? 'Rien d\'importé : ces tickets étaient déjà enregistrés.'
         : '${resultat.inseres} tickets importés'
             '${resultat.doublons > 0 ? ' · ${resultat.doublons} déjà connus ignorés' : ''}'
-            '${ignorees > 0 ? ' · $ignorees illisibles ignorés' : ''}';
+            '${ignorees > 0 ? ' · $ignorees illisibles ignorés' : ''}'
+            '${parsed.ignores > 0 ? ' · ${parsed.ignores} déjà utilisés ignorés' : ''}';
     messenger
       ..clearSnackBars()
       ..showSnackBar(SnackBar(content: Text(msg)));
@@ -241,7 +242,7 @@ class _DialogueProgression extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Lecture du PDF'),
+      title: const Text('Lecture du fichier'),
       content: ValueListenableBuilder<({double f, String m})>(
         valueListenable: progression,
         builder: (context, v, _) => Column(
@@ -416,7 +417,9 @@ class DialogueConfirmationImportImportState extends State<DialogueConfirmationIm
                   ? 'Ce PDF indique ${libelleDuree(duree)} : aucun forfait de cette durée n\'existe encore. Ajoutez-le dans Réglages > Forfaits, ou choisissez-en un ci-dessus.'
                   : widget.source == 'mikhmon'
                       ? 'Vérifiez que le forfait correspond à la durée imprimée sur les tickets.'
-                      : '',
+                      : widget.source == 'excel'
+                          ? 'Le tableur ne donne pas de prix : vérifiez-le ci-dessus. Les tickets déjà utilisés ne sont pas importés.'
+                          : '',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],

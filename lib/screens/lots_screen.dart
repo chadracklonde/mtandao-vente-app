@@ -62,7 +62,7 @@ class _LotsScreenState extends State<LotsScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => ImportFlow.demarrer(context),
         icon: const Icon(Icons.picture_as_pdf_rounded),
-        label: const Text('Importer un PDF'),
+        label: const Text('Importer un fichier'),
       ),
       body: _chargement
           ? const Center(child: CircularProgressIndicator())

@@ -30,21 +30,28 @@ des rapports par jour, semaine, mois ou période libre.
 | **PIN** | Code à 4 chiffres au lancement et après 1 minute en arrière-plan. Stocké haché, jamais en clair. Après 5 mauvais codes, l'application se bloque (30 s, puis 1 min, 5 min, 15 min, 1 h) **même si on la ferme et la rouvre**. |
 | **Sauvegarde** | Un fichier `.mtandao` à envoyer sur WhatsApp, Drive ou e-mail. Restauration sur un autre téléphone. Le PIN n'est pas inclus. |
 | **Sauvegarde Google Drive** | Facultative et automatique : toutes les heures (si les données ont changé), dans le dossier « Mtandao Sauvegardes » de votre Drive. Les 10 plus récentes sont gardées. Voir la section ci-dessous. |
-| **Partage d'un ticket** | Envoie code + lien de connexion au client. |
+| **Partage d'un ticket** | Envoie code + lien de connexion au client. Juste après une vente, la flèche d'envoi du bandeau envoie le ou les codes vendus (avec « Bonjour <nom du client> » s'il y en a un) par WhatsApp, SMS… |
+| **Plusieurs tickets d'un coup** | Dans la fenêtre de vente, une quantité (− / +) quand le forfait a plusieurs tickets : ils sont vendus ensemble (même client, même paiement), et « Annuler » les reprend tous. |
+| **Client facultatif** | Le nom du client peut être noté sur n'importe quelle vente ; il n'est obligatoire qu'à crédit. |
+| **Recherche** | Loupe en haut de l'écran Vente : un ticket par son code, ou toutes les ventes d'un client (nom ou téléphone) ou d'un vendeur. Détail, envoi du code, « le client a payé », annulation de la vente. |
+| **Suivi d'utilisation** | Réglages > Suivi d'utilisation : on importe l'export Excel du routeur (colonne « Statut »). Les tickets utilisés sont marqués, et l'application liste les écarts : *utilisés mais non vendus* (vente oubliée ou fuite) et *vendus mais pas encore utilisés*. |
+| **Clôture de caisse** | Réglages > Clôture de caisse : argent liquide attendu pour un jour (et un vendeur) = espèces en francs + dollars en espèces + dettes payées ce jour-là ; le mobile money et les offerts n'entrent pas en caisse. On saisit l'argent compté, l'écart s'affiche, et la clôture est gardée (et sauvegardée). |
+| **Dettes en retard** | Délai réglable (7 jours par défaut, 0 = jamais) : les crédits non payés plus anciens sont marqués « En retard » et signalés par une alerte sur l'écran Vente. |
 
 Un code déjà importé n'est jamais ajouté deux fois.
 Le prix est enregistré sur chaque ticket à l'import : changer un tarif plus tard ne modifie pas l'historique.
 
 ## Modèles de PDF reconnus
 
-1. **Planche Mikhmon** (logo MIKHMON, QR code, 4 × 4 tickets par page en paysage).
+1. **Planche de tickets à QR code** (Mikhmon ou autre) : paysage ou portrait, un ticket ou des dizaines par page, grille quelconque. Les QR sont repérés sur la page, quel que soit leur emplacement.
    Les pages n'ont pas de texte : l'application lit le code **dans le QR**
    (`...login?username=24283&password=24283`) et garde l'image du ticket.
    Rendu à 300 dpi, deuxième essai à 400 dpi pour les QR difficiles,
    saisie manuelle en dernier recours.
 2. **« Tickets Wi-Fi »** en texte simple : `Code : 461232` / `Durée : 1jour(s)`.
+3. **Tableur Excel (.xlsx)** : export « Voucher » (colonnes ID de coupon, Statut, Durée). Les tickets déjà utilisés sont ignorés ; le prix se saisit à l'import.
 
-La mise en page Mikhmon est lue par position (valeurs mesurées sur le PDF « 24h 200 tickets »,
+Le modèle Mikhmon paysage 4 × 4 est lu en priorité par position (valeurs mesurées sur le PDF « 24h 200 tickets »,
 dans `lib/pdf_import.dart`). Si une autre planche a une grille différente, il suffit
 d'ajuster les constantes `_caseX0`, `_casePasX`, `_caseY0`, `_casePasY`… en haut de ce fichier.
 
