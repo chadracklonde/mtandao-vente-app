@@ -243,6 +243,8 @@ void main() {
           onCreate: (db, v) async {
             await AppDb.creer(db, v);
             await db.execute('DROP TABLE clotures');
+            await db.execute('DROP TABLE annulations');
+            await db.execute('ALTER TABLE tickets DROP COLUMN annulations');
             // SQLite récent : retire la colonne ajoutée par la v4.
             await db.execute('ALTER TABLE tickets DROP COLUMN utilise_le');
           },
@@ -250,7 +252,7 @@ void main() {
     await repo3.close();
     final v4 = await databaseFactoryFfi.openDatabase(chemin,
         options: OpenDatabaseOptions(
-          version: 4,
+          version: AppDb.version,
           onConfigure: AppDb.configurer,
           onUpgrade: AppDb.migrer,
         ));

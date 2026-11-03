@@ -1,4 +1,5 @@
 import 'caisse_screen.dart';
+import 'journal_annulations_screen.dart';
 import 'suivi_utilisation_screen.dart';
 import 'dart:io';
 
@@ -366,6 +367,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ? 'Pas de rappel de retard'
                 : 'Signaler un crédit non payé après $_delaiDette jours'),
             onTap: _modifierDelaiDette,
+          ),
+          ListTile(
+            leading: const Icon(Icons.history_toggle_off_rounded),
+            title: const Text('Journal des annulations'),
+            subtitle: const Text('Qui a annulé quelle vente, et quand'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const JournalAnnulationsScreen())),
           ),
           ListTile(
             leading: const Icon(Icons.savings_outlined),

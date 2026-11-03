@@ -4,6 +4,7 @@ import '../format.dart';
 import '../models.dart';
 import '../state.dart';
 import '../widgets/barre_progression.dart';
+import '../widgets/code_vendeur.dart';
 import '../widgets/dialogues.dart';
 import 'import_flow.dart';
 import 'saisie_manuelle.dart';
@@ -289,6 +290,12 @@ class _LotDetailScreenState extends State<LotDetailScreen> {
         ),
       );
       if (ok != true) return;
+      if (!mounted) return;
+      // Remettre en vente un ticket déjà vendu : réservé au patron.
+      if (!await demanderCodePatron(context,
+          raison: 'Remettre en vente un ticket déjà vendu est réservé au patron.')) {
+        return;
+      }
       await appState.repo.remettreEnStock(t.id);
     } else {
       final ok = await showDialog<bool>(

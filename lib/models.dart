@@ -156,6 +156,7 @@ class Ticket {
     this.taux,
     this.montantDevise,
     this.utiliseLe,
+    this.annulations = 0,
   });
 
   final int id;
@@ -183,6 +184,9 @@ class Ticket {
 
   /// Date d'utilisation sur le réseau, lue dans l'export Excel du routeur.
   final DateTime? utiliseLe;
+
+  /// Nombre de fois où la vente de ce ticket a été annulée.
+  final int annulations;
 
   /// Vrai si le mot de passe diffère du code (ticket « utilisateur + mot de passe »).
   bool get aMotDePasseDistinct =>
@@ -215,6 +219,7 @@ class Ticket {
         utiliseLe: m['utilise_le'] == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(m['utilise_le'] as int),
+        annulations: (m['annulations'] as int?) ?? 0,
       );
 }
 
@@ -446,4 +451,35 @@ class Cloture {
 
   int get ecartCdf => compteCdf - attenduCdf;
   int get ecartUsd => compteUsd - attenduUsd;
+}
+
+
+/// Pourquoi une annulation rapide (celle du vendeur) est refusée.
+enum RefusAnnulation { aucuneVente, tropAncienne, dejaAnnulee, ventePrecedente }
+
+/// Résultat d'une annulation rapide : les tickets remis en vente, ou le refus.
+class ResultatAnnulation {
+  const ResultatAnnulation.reussie(this.tickets) : refus = null;
+  const ResultatAnnulation.refusee(this.refus) : tickets = const [];
+  final List<Ticket> tickets;
+  final RefusAnnulation? refus;
+  bool get ok => refus == null;
+}
+
+/// Une ligne du journal des annulations.
+class AnnulationLigne {
+  const AnnulationLigne({
+    required this.code,
+    required this.venduLe,
+    required this.annuleLe,
+    required this.origine,
+    this.vendeurNom,
+  });
+  final String code;
+  final DateTime? venduLe;
+  final DateTime annuleLe;
+
+  /// 'vendeur' (bouton Annuler) ou 'patron' (avec le code de l'application).
+  final String origine;
+  final String? vendeurNom;
 }

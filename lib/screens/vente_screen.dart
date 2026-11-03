@@ -330,11 +330,28 @@ class _VenteScreenState extends State<VenteScreen> {
     }
   }
 
+  static String _messageRefus(RefusAnnulation r) => switch (r) {
+        RefusAnnulation.aucuneVente => 'Aucune vente à annuler.',
+        RefusAnnulation.tropAncienne =>
+          'Annulation impossible : cette vente date de plus de 2 minutes. Seul le patron peut la corriger (Lots ou Recherche, avec son code).',
+        RefusAnnulation.dejaAnnulee =>
+          'Annulation impossible : ce ticket a déjà été annulé une fois. Seul le patron peut le corriger.',
+        RefusAnnulation.ventePrecedente =>
+          'Seule la vente qui vient d\'être faite peut être annulée. Pour une vente plus ancienne, voyez le patron.',
+      };
+
   Future<void> _annuler({bool confirmer = true}) async {
     if (_occupe) return;
-    // La dernière vente (un ou plusieurs tickets), quel que soit le forfait :
-    // une erreur de forfait peut ainsi s'annuler sans changer d'écran.
-    final groupe = await appState.repo.derniereVente();
+    // Seule la dernière vente (un ou plusieurs tickets) peut être annulée,
+    // dans les 2 minutes, et une seule fois par ticket.
+    final repo = appState.repo;
+    final refus = await repo.refusAnnulation();
+    if (refus != null) {
+      if (!mounted) return;
+      _afficherBandeau(_messageRefus(refus), secondes: 7);
+      return;
+    }
+    final groupe = await repo.derniereVente();
     if (groupe.isEmpty) return;
     final dernier = groupe.last;
     final forfait = _profils
@@ -350,9 +367,9 @@ class _VenteScreenState extends State<VenteScreen> {
         context: context,
         builder: (ctx) => AlertDialog(
           title: const Text('Annuler la dernière vente ?'),
-          content: Text(groupe.length == 1
-              ? 'Le ${quoi[0].toLowerCase()}${quoi.substring(1)} sera remis en vente et son montant retiré du total.'
-              : '$quoi seront remis en vente et leur montant retiré du total.'),
+          content: Text(
+              '${groupe.length == 1 ? 'Le ${quoi[0].toLowerCase()}${quoi.substring(1)} sera remis' : '$quoi seront remis'} en vente et son montant retiré du total.\n\n'
+              'Une vente ne peut être annulée qu\'une seule fois.'),
           actions: [
             TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
@@ -365,9 +382,13 @@ class _VenteScreenState extends State<VenteScreen> {
       );
       if (ok != true) return;
     }
-    await appState.repo.annulerDerniereVenteGlobale();
+    final r = await repo.annulerVenteRecente();
     appState.changed();
     if (!mounted) return;
+    if (!r.ok) {
+      _afficherBandeau(_messageRefus(r.refus!), secondes: 7);
+      return;
+    }
     _afficherBandeau(
         groupe.length == 1
             ? '$quoi remis en vente'
