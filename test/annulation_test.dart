@@ -82,14 +82,21 @@ void main() {
     expect(await repo.refusAnnulation(), isNull);
   });
 
-  test('au bout de 10 minutes, le vendeur ne peut plus annuler', () async {
+  test('au bout de 2 minutes, le vendeur ne peut plus annuler', () async {
     final repo = await _neuf();
     final ts = await repo.ticketsDuLot(1);
     await repo.vendre(ts[0].id);
-    final tard = DateTime.now().add(const Duration(minutes: 11));
+    final tard = DateTime.now().add(const Duration(minutes: 3));
     expect(await repo.refusAnnulation(maintenant: tard), RefusAnnulation.tropAncienne);
-    final presque = DateTime.now().add(const Duration(minutes: 9));
+    final presque = DateTime.now().add(const Duration(minutes: 1));
     expect(await repo.refusAnnulation(maintenant: presque), isNull);
+    // La limite est 2 minutes pile.
+    final vente = (await repo.derniereVente()).first.venduLe!;
+    expect(await repo.refusAnnulation(maintenant: vente.add(const Duration(minutes: 2))), isNull);
+    expect(
+        await repo.refusAnnulation(
+            maintenant: vente.add(const Duration(minutes: 2, seconds: 1))),
+        RefusAnnulation.tropAncienne);
   });
 
   test('aucune vente : rien à annuler', () async {

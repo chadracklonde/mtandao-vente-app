@@ -599,12 +599,12 @@ class Repo {
         whereArgs: [t['id']]);
   }
 
-  /// Durée pendant laquelle la dernière vente peut être annulée par le vendeur.
-  static const Duration fenetreAnnulation = Duration(minutes: 10);
+  /// Durée pendant laquelle la dernière vente peut être annulée par le vendeur : passé ce délai, plus d'annulation.
+  static const Duration fenetreAnnulation = Duration(minutes: 2);
 
   /// Pourquoi le vendeur ne peut pas annuler maintenant, ou null s'il le peut.
   ///
-  /// Règles : seule la dernière vente (tous ses tickets) ; dans les 10 minutes ;
+  /// Règles : seule la dernière vente (tous ses tickets) ; dans les 2 minutes ;
   /// jamais un ticket déjà annulé une fois ; et seulement une vente faite
   /// après la dernière annulation (on ne peut pas remonter dans l'historique).
   Future<RefusAnnulation?> refusAnnulation({DateTime? maintenant}) async {

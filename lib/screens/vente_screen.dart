@@ -333,7 +333,7 @@ class _VenteScreenState extends State<VenteScreen> {
   static String _messageRefus(RefusAnnulation r) => switch (r) {
         RefusAnnulation.aucuneVente => 'Aucune vente à annuler.',
         RefusAnnulation.tropAncienne =>
-          'Annulation impossible : cette vente date de plus de 10 minutes. Seul le patron peut la corriger (Lots ou Recherche, avec son code).',
+          'Annulation impossible : cette vente date de plus de 2 minutes. Seul le patron peut la corriger (Lots ou Recherche, avec son code).',
         RefusAnnulation.dejaAnnulee =>
           'Annulation impossible : ce ticket a déjà été annulé une fois. Seul le patron peut le corriger.',
         RefusAnnulation.ventePrecedente =>
@@ -343,7 +343,7 @@ class _VenteScreenState extends State<VenteScreen> {
   Future<void> _annuler({bool confirmer = true}) async {
     if (_occupe) return;
     // Seule la dernière vente (un ou plusieurs tickets) peut être annulée,
-    // dans les 10 minutes, et une seule fois par ticket.
+    // dans les 2 minutes, et une seule fois par ticket.
     final repo = appState.repo;
     final refus = await repo.refusAnnulation();
     if (refus != null) {
