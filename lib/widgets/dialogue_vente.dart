@@ -17,7 +17,7 @@ class ChoixVente {
 }
 
 /// Fenêtre « Confirmer la vente ? » : ticket, montant, mode de paiement et,
-/// pour une vente à crédit, le client. Retourne null si la vente est annulée.
+/// le client (obligatoire seulement à crédit). Retourne null si la vente est annulée.
 Future<ChoixVente?> demanderVente(
   BuildContext context, {
   required Ticket ticket,
@@ -164,36 +164,41 @@ class _DialogueVenteState extends State<DialogueVente> {
                 padding: EdgeInsets.only(top: 8),
                 child: Text('Ticket offert : aucun montant ne sera encaissé.'),
               ),
-            if (_paiement == Paiement.credit) ...[
-              const SizedBox(height: 12),
-              DropdownButtonFormField<int>(
-                // Recréé quand le client change (nouveau client choisi
-                // d'office) : « initialValue » n'est lu qu'à la création.
-                key: ValueKey('client-${_clients.length}-$_clientId'),
-                initialValue: _clientId,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                    labelText: 'Client', border: OutlineInputBorder()),
-                items: [
-                  for (final c in _clients)
-                    DropdownMenuItem(
-                      value: c.id,
-                      child: Text(c.nom, overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-                onChanged: (v) => setState(() => _clientId = v),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int?>(
+              // Recréé quand le client change (nouveau client choisi
+              // d'office) : « initialValue » n'est lu qu'à la création.
+              key: ValueKey('client-${_clients.length}-$_clientId-$_paiement'),
+              initialValue: _clientId,
+              isExpanded: true,
+              decoration: InputDecoration(
+                  labelText: _paiement == Paiement.credit
+                      ? 'Client'
+                      : 'Client (facultatif)',
+                  border: const OutlineInputBorder()),
+              items: [
+                if (_paiement != Paiement.credit)
+                  const DropdownMenuItem<int?>(
+                      value: null, child: Text('Sans nom')),
+                for (final c in _clients)
+                  DropdownMenuItem<int?>(
+                    value: c.id,
+                    child: Text(c.nom, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (v) => setState(() => _clientId = v),
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _nouveauClient,
+                icon: const Icon(Icons.person_add_alt_1_rounded),
+                label: const Text('Nouveau client'),
               ),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: _nouveauClient,
-                  icon: const Icon(Icons.person_add_alt_1_rounded),
-                  label: const Text('Nouveau client'),
-                ),
-              ),
+            ),
+            if (_paiement == Paiement.credit)
               Text('Le montant sera à recevoir tant que le client n\'a pas payé.',
                   style: TextStyle(color: cs.onSurfaceVariant)),
-            ],
           ],
         ),
       ),

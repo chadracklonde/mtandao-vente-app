@@ -204,6 +204,20 @@ void main() {
       expect(s.restants, 3);
     });
 
+    test('hors crédit, le client est facultatif et n\'est pas une dette', () async {
+      final (repo, lotId) = await _repoAvecLot();
+      final ts = await _tickets(repo, lotId);
+      final marie = await repo.ajouterClient('Marie');
+      await repo.vendre(ts[0].id, clientId: marie);
+      await repo.vendre(ts[1].id);
+      final v = await repo.ventes(
+          DateTime.now().subtract(const Duration(days: 1)),
+          DateTime.now().add(const Duration(days: 1)));
+      expect(v.where((l) => l.clientNom == 'Marie').length, 1);
+      expect(v.where((l) => l.clientNom == null).length, 1);
+      expect(await repo.dettes(), isEmpty);
+    });
+
     test('une vente à crédit exige un client', () async {
       final (repo, lotId) = await _repoAvecLot();
       final t = (await _tickets(repo, lotId)).first;

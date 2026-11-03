@@ -408,7 +408,8 @@ class Repo {
   /// Marque un ticket comme vendu. Retourne faux s'il l'était déjà, ou s'il
   /// est signalé défectueux.
   ///
-  /// [paiement] : espèces par défaut. Une vente à crédit exige un [clientId].
+  /// [paiement] : espèces par défaut. Une vente à crédit exige un [clientId] ;
+  /// pour les autres paiements, le client est facultatif (simple nom noté).
   ///
   /// [devise] : francs par défaut. Pour un paiement en dollars, [taux] est le
   /// nombre de francs pour 1 dollar ; le montant reçu en dollars est calculé
@@ -451,7 +452,7 @@ class Repo {
           'vendu': 1,
           'vendu_le': DateTime.now().millisecondsSinceEpoch,
           'paiement': paiement,
-          'client_id': paiement == Paiement.credit ? clientId : null,
+          'client_id': clientId,
           'paye_le': null,
           'vendeur_id': vendeurId,
           'devise': devise,

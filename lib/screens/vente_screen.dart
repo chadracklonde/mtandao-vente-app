@@ -258,20 +258,21 @@ class _VenteScreenState extends State<VenteScreen> {
       if (!mounted) return;
       if (ok) {
         // Le client a pu être créé pendant la vente : on relit la liste.
-        final nomClient = choix.paiement == Paiement.credit
-            ? (await repo.clients())
+        final nomClient = choix.clientId == null
+            ? null
+            : (await repo.clients())
                 .where((c) => c.id == choix.clientId)
                 .map((c) => c.nom)
-                .firstOrNull
-            : null;
+                .firstOrNull;
         if (!mounted) return;
         final dollars = choix.devise == Devise.usd
             ? '  ·  reçu ${Devise.formaterDollar(Devise.centimesDollar(t.prix, choix.taux!))}'
             : '';
+        final pour = nomClient == null ? '' : '  ·  $nomClient';
         final detail = switch (choix.paiement) {
-          Paiement.especes => '',
+          Paiement.especes => pour,
           Paiement.credit => '  ·  à crédit (${nomClient ?? 'client'})',
-          final p => '  ·  ${Paiement.libelle(p).toLowerCase()}',
+          final p => '  ·  ${Paiement.libelle(p).toLowerCase()}$pour',
         };
         _afficherBandeau('Ticket ${t.code} vendu  ·  ${cdf(t.prix)}$detail$dollars',
             annulable: true);

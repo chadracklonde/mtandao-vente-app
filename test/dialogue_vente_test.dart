@@ -109,7 +109,7 @@ void main() {
         tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Oui, vendu'));
     expect(bouton().onPressed, isNull);
 
-    await tester.tap(find.byType(DropdownButtonFormField<int>));
+    await tester.tap(find.byType(DropdownButtonFormField<int?>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Marie').last);
     await tester.pumpAndSettle();
@@ -119,6 +119,27 @@ void main() {
     await tester.pumpAndSettle();
     final choix = (await resultat())!;
     expect(choix.paiement, Paiement.credit);
+    expect(choix.clientId, 5);
+  });
+
+  testWidgets('espèces : le client est facultatif, mais peut être noté', (tester) async {
+    final resultat = await _ouvrir(tester, clients: const [Client(id: 5, nom: 'Marie')]);
+    await tester.tap(find.text('ouvrir'));
+    await tester.pumpAndSettle();
+    expect(find.text('Client (facultatif)'), findsOneWidget);
+    // Sans nom : on peut valider tout de suite.
+    FilledButton bouton() =>
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Oui, vendu'));
+    expect(bouton().onPressed, isNotNull);
+
+    await tester.tap(find.byType(DropdownButtonFormField<int?>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Marie').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Oui, vendu'));
+    await tester.pumpAndSettle();
+    final choix = (await resultat())!;
+    expect(choix.paiement, Paiement.especes);
     expect(choix.clientId, 5);
   });
 
